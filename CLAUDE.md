@@ -31,6 +31,19 @@ When code starts landing, update this file's commands/architecture sections to r
 - Not multi-tenant. Single-user/operator at first.
 - Not real-time. Batch only — bidding round + execution can take seconds to minutes.
 
+## Delivery phases
+
+The system ships in two phases so that a working auction is in production before the cross-cloud surface area lands.
+
+**Phase 1 — AWS-only (2-bidder auction).** Coordinator + AWS/Claude + AWS/Nova. The auction is fully functional with two bidders; Vickrey, tier filtering, decline handling, MAPE-based tie-breaking, re-auction on failure all work the same. Cross-cloud egress, Azure auth, GCP auth, and the Azure/GCP pricing parsers are out of scope. The pricing refresh job ships in Phase 1 but only handles AWS Bedrock prices.
+
+**Phase 2 — Add Azure/GPT and GCP/Gemini (4-bidder auction).** Both new agents come up at the same time (the engineering work happens in parallel; bring them online one at a time so JWT verification and egress can be debugged in isolation). The pricing refresh job extends to cover Azure Retail Prices API and GCP Cloud Billing Catalog. Cross-cloud egress dashboards land here. Score-weighted auction layering (after ~100 settled tasks) and S3 ledger export also move into Phase 2 because they're more useful with four agents producing data.
+
+What that means concretely:
+- Phase 1's market is informative but narrow — Nova vs Claude is a *frontier-vs-cost* comparison, not a four-way frontier comparison.
+- The same-operator collusion concern is *more* acute in Phase 1 (both bidders share an AWS account; the only competitor is in the same blast radius). Treat the audit log discipline as load-bearing in Phase 1, not as a v2 nicety.
+- The bid round in Phase 1 has fewer moving parts — no cross-cloud RTT — so end-to-end latency drops by ~100–200ms vs Phase 2's profile.
+
 ## High-level architecture
 
 ```
@@ -302,15 +315,25 @@ The two AWS agents share `/agent` core but have separate deploy roots. Do **not*
 
 ## Build order
 
+### Phase 1 — AWS-only (2-bidder auction)
+
 1. **Protocol first.** Zod schemas in `/protocol` for bid / execute / award / result / no_bid. Tier mapping. Pricing constants fallback. Everything downstream depends on these.
 2. **Coordinator skeleton.** Async API (`POST /tasks`, `GET /tasks/:id`), DynamoDB ledger, JWT signing + JWKS endpoint, basic auction state machine. Run with no agents — exercise the flow.
 3. **First agent end-to-end: AWS / Claude.** Lambda + API Gateway + Bedrock. JWT verification at entry. Bid → execute → settle round-trip with the coordinator.
-4. **Pricing refresh Lambda.** Daily job populating the DynamoDB pricing table, with last-known-good fallback. Agent reads from it for bid USD calculation.
-5. **Second AWS agent: Nova.** Same cloud, same IaC patterns. First time the auction has real competition; smoke-tests the same-account isolation requirements before going cross-cloud.
-6. **Vickrey, tiers, decline, tie-break, re-auction.** All the auction rules now have a real testbed.
-7. **Azure / GPT, then GCP / Gemini.** Bring up cross-cloud agents one at a time so JWT verification on each cloud's edge and egress can be debugged in isolation.
-8. **Ledger + accuracy scoring.** MAPE rollups, decline-rate dashboards, win-rate by tier.
-9. **Eval harness + Grafana dashboards.** Now you can answer "is the market actually working?" — and specifically whether Nova's price advantage is real or just optimistic bidding.
-10. **Score-weighted auction layer.** Once ~100 settled tasks of ledger data exist, multiply bids by historical accuracy multipliers and observe behavior shift.
+4. **Pricing refresh Lambda — AWS only.** Daily job populating the DynamoDB pricing table from the AWS Pricing API (Bedrock SKUs), with last-known-good fallback. Agent reads from it for bid USD calculation. Azure and GCP parsers come in Phase 2.
+5. **Second AWS agent: Nova.** Same cloud, same IaC patterns. First time the auction has real competition; smoke-tests the same-account isolation requirements.
+6. **Vickrey, tiers, decline, tie-break, re-auction.** All the auction rules now have a real testbed with two real bidders.
+7. **Ledger + accuracy scoring.** MAPE rollups, decline-rate dashboards, win-rate by tier (per-agent, even with just two).
+8. **Eval harness + Grafana dashboards (Phase 1 cut).** Coordinator + AWS agents instrumented; eval fixtures answering "is Claude vs Nova working as a market?"
 
-Stages 1–7 are buildable in two to three weeks by one person. Stages 8–10 are where the project becomes interesting.
+End of Phase 1: a production-ready 2-bidder auction. Real product, just narrower than the long-term vision.
+
+### Phase 2 — Add Azure + GCP (4-bidder auction)
+
+9. **Pricing refresh extension.** Add Azure Retail Prices API parser and GCP Cloud Billing Catalog parser to the existing daily job.
+10. **Azure / GPT, then GCP / Gemini.** Bring up cross-cloud agents one at a time so JWT verification on each cloud's edge and egress can be debugged in isolation.
+11. **Cross-cloud egress dashboards + cost alarms.** Now relevant — the new bid traffic is no longer free.
+12. **Eval harness expansion.** Re-baseline MAPE per agent across the four-way market.
+13. **Score-weighted auction layer.** Once ~100 settled tasks of ledger data exist (mostly post-Phase-2), multiply bids by historical accuracy multipliers and observe behavior shift.
+
+Phase 1 is buildable in two to three weeks by one person. Phase 2 adds another two to three weeks for the cross-cloud agents and pricing parsers.
