@@ -1,0 +1,10 @@
+packages:
+  - coordinator
+  - agent
+  - agent/aws-claude
+  - agent/aws-nova
+  - agent/azure-gpt
+  - agent/gcp-gemini
+  - protocol
+  - infra
+  - eval
