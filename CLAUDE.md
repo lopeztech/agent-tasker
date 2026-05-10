@@ -15,11 +15,12 @@ The four agents are model-locked by design so the market spans the major frontie
 
 Two agents live in AWS (different models, independent endpoints, independent bidders). Azure and GCP host one each.
 
-When code starts landing, update this file's commands/architecture sections to reflect what is actually built; keep the design rationale below as the reference for *why*.
+When code starts landing, update this file's commands/architecture sections to reflect what is actually built; keep the design rationale below as the reference for _why_.
 
 ## Goals & non-goals
 
 **Goals**
+
 - One public interface that hides the multi-cloud fan-out.
 - Four structurally identical agents, model-locked (Claude, Nova, GPT, Gemini), that compete on **estimated USD cost** for each task.
 - Mechanism that pressures agents to bid honestly and rewards accurate estimators over time.
@@ -27,6 +28,7 @@ When code starts landing, update this file's commands/architecture sections to r
 - Be cheap at idle. Pay-per-task only.
 
 **Non-goals (initial cut)**
+
 - Not a general agent framework. Tasks are LLM-completable jobs, not arbitrary RPC.
 - Not multi-tenant. Single-user/operator at first.
 - Not real-time. Batch only — bidding round + execution can take seconds to minutes.
@@ -40,8 +42,9 @@ The system ships in two phases so that a working auction is in production before
 **Phase 2 — Add Azure/GPT and GCP/Gemini (4-bidder auction).** Both new agents come up at the same time (the engineering work happens in parallel; bring them online one at a time so JWT verification and egress can be debugged in isolation). The pricing refresh job extends to cover Azure Retail Prices API and GCP Cloud Billing Catalog. Cross-cloud egress dashboards land here. Score-weighted auction layering (after ~100 settled tasks) and S3 ledger export also move into Phase 2 because they're more useful with four agents producing data.
 
 What that means concretely:
-- Phase 1's market is informative but narrow — Nova vs Claude is a *frontier-vs-cost* comparison, not a four-way frontier comparison.
-- The same-operator collusion concern is *more* acute in Phase 1 (both bidders share an AWS account; the only competitor is in the same blast radius). Treat the audit log discipline as load-bearing in Phase 1, not as a v2 nicety.
+
+- Phase 1's market is informative but narrow — Nova vs Claude is a _frontier-vs-cost_ comparison, not a four-way frontier comparison.
+- The same-operator collusion concern is _more_ acute in Phase 1 (both bidders share an AWS account; the only competitor is in the same blast radius). Treat the audit log discipline as load-bearing in Phase 1, not as a v2 nicety.
 - The bid round in Phase 1 has fewer moving parts — no cross-cloud RTT — so end-to-end latency drops by ~100–200ms vs Phase 2's profile.
 
 ## High-level architecture
@@ -68,6 +71,7 @@ What that means concretely:
 ```
 
 **Coordinator** runs on AWS — two of the four agents already live there, removing some egress and IAM complexity. It owns:
+
 - Task intake API (async: `POST /tasks`, `GET /tasks/:id`, optional webhook callback)
 - Auction protocol state machine
 - DynamoDB ledger of bids, awards, results, accuracy scores, per-task pricing snapshots
@@ -75,6 +79,7 @@ What that means concretely:
 - Daily pricing refresh Lambda
 
 **Each agent** exposes the same internal contract — `/bid`, `/execute`, `/health` — but is implemented natively on its cloud and locked to a specific model family:
+
 - AWS / Claude: API Gateway → Lambda → Bedrock (Anthropic Claude)
 - AWS / Nova: API Gateway → Lambda → Bedrock (Amazon Nova)
 - Azure / GPT: API Management → Functions / Container Apps → Azure OpenAI (GPT-5.x)
@@ -110,8 +115,9 @@ A task lifecycle has four phases. Keep them as distinct API calls so the auction
    - `{task_id, agent_id, status: "no_bid", reason: "context_overflow" | "policy" | "capability" | "internal_error"}`
 
    Bids are sealed: agents do not see each other. The exact `model_id` is logged in the audit trail but not part of winner selection — only `tier` is exposed to the auction.
+
 3. **Award** — Coordinator picks a winner per Vickrey rules, sends `award` to the winner and `reject` to the others. Signed receipts both ways.
-4. **Execute & settle** — Winner runs the task, returns the output plus *actual* token usage. Coordinator records actual vs bid against the per-task pricing snapshot, updates the agent's accuracy score, stores everything in the ledger.
+4. **Execute & settle** — Winner runs the task, returns the output plus _actual_ token usage. Coordinator records actual vs bid against the per-task pricing snapshot, updates the agent's accuracy score, stores everything in the ledger.
 
 ### Bid timeout — adaptive
 
@@ -145,7 +151,7 @@ Every bid declares a `tier`: `small | medium | frontier`. Tier-to-model mapping 
 - `medium` — mid-class models in each family
 - `frontier` — top of each family (Sonnet, Nova Pro, GPT-5, Gemini 2.5 Pro)
 
-Tasks may include `min_tier` in the spec. Agents below it are excluded from the auction *before* winner selection. Default is no floor — the market does its job.
+Tasks may include `min_tier` in the spec. Agents below it are excluded from the auction _before_ winner selection. Default is no floor — the market does its job.
 
 ### Tie-breaking — historical accuracy
 
@@ -166,6 +172,7 @@ If the winner fails during `/execute`, exclude them and re-auction with the rema
 ### Truthfulness enforcement (ledger-driven)
 
 Per-agent ledger tracks:
+
 - Mean absolute percentage error (MAPE) on bids
 - Sign of error (chronic under- vs over-bidder)
 - Win rate vs bid rate
@@ -185,16 +192,16 @@ GET  /health
 
 Internally, `/bid` is itself a small LLM call: a cheap fast model (Haiku, Nova Micro, GPT-5 mini, Gemini Flash) reads the task and outputs a structured JSON estimate. `/execute` routes to the agent's pinned production model.
 
-| | AWS / Claude | AWS / Nova | Azure / GPT | GCP / Gemini |
-|-|-|-|-|-|
-| Edge | API Gateway HTTP API | API Gateway HTTP API | API Management or Function URL | Cloud Run (built-in HTTPS) |
-| Compute | Lambda Node 22 (512MB) | Lambda Node 22 (512MB) | Functions Flex / Container Apps | Cloud Run (min-instances=0) |
-| LLM (bid) | Bedrock — Claude Haiku | Bedrock — Nova Micro/Lite | Azure OpenAI — GPT-5 mini | Vertex AI — Gemini Flash |
-| LLM (execute) | Bedrock — Claude Sonnet 4.6+ | Bedrock — Nova Pro | Azure OpenAI — GPT-5 | Vertex AI — Gemini 2.5 Pro |
-| Model family lock | Anthropic only (IAM) | Amazon only (IAM) | OpenAI only | Google only |
-| Secrets | Secrets Manager | Secrets Manager (separate path) | Key Vault | Secret Manager |
-| Auth from coordinator | JWT (RS256) | JWT (RS256) | JWT (RS256) | JWT (RS256) |
-| Logs | CloudWatch (own log group) | CloudWatch (own log group) | App Insights | Cloud Logging |
+|                       | AWS / Claude                 | AWS / Nova                      | Azure / GPT                     | GCP / Gemini                |
+| --------------------- | ---------------------------- | ------------------------------- | ------------------------------- | --------------------------- |
+| Edge                  | API Gateway HTTP API         | API Gateway HTTP API            | API Management or Function URL  | Cloud Run (built-in HTTPS)  |
+| Compute               | Lambda Node 22 (512MB)       | Lambda Node 22 (512MB)          | Functions Flex / Container Apps | Cloud Run (min-instances=0) |
+| LLM (bid)             | Bedrock — Claude Haiku       | Bedrock — Nova Micro/Lite       | Azure OpenAI — GPT-5 mini       | Vertex AI — Gemini Flash    |
+| LLM (execute)         | Bedrock — Claude Sonnet 4.6+ | Bedrock — Nova Pro              | Azure OpenAI — GPT-5            | Vertex AI — Gemini 2.5 Pro  |
+| Model family lock     | Anthropic only (IAM)         | Amazon only (IAM)               | OpenAI only                     | Google only                 |
+| Secrets               | Secrets Manager              | Secrets Manager (separate path) | Key Vault                       | Secret Manager              |
+| Auth from coordinator | JWT (RS256)                  | JWT (RS256)                     | JWT (RS256)                     | JWT (RS256)                 |
+| Logs                  | CloudWatch (own log group)   | CloudWatch (own log group)      | App Insights                    | Cloud Logging               |
 
 The two AWS agents must use **separate IAM roles** scoped to only their model family. The Claude agent's role can `bedrock:InvokeModel` on Anthropic models only; the Nova agent's role on Amazon models only. This is what enforces the model lock at the cloud layer rather than relying on application code.
 
@@ -205,6 +212,7 @@ The two AWS agents must use **separate IAM roles** scoped to only their model fa
 Single mechanism across all four agents. RS256 keypair held by the coordinator. Public key published as a JWKS document at a static S3 + CloudFront URL.
 
 Per-task tokens:
+
 - 60-second TTL
 - `aud` = target agent ID
 - `sub` = coordinator service identity
@@ -226,6 +234,7 @@ Bids are denominated in USD, so per-token prices for every model in scope must b
 ## Storage (DynamoDB)
 
 Single-table design for the ledger:
+
 - PK: `task_id`
 - SK: `<phase>#<agent_id>` for sub-records (`bid#aws-claude`, `award`, `result#aws-nova`, etc.)
 - GSI on `agent_id` for per-agent rolling stats
@@ -268,15 +277,15 @@ Numbers are order-of-magnitude as of late 2025/early 2026 list pricing — reche
 
 **Monthly fixed-ish costs**
 
-| Item | Est. monthly |
-|-|-|
-| 3× cloud accounts at idle (logs, KMS, secrets — AWS counts once even with 2 agents) | $5–15 |
-| Coordinator (Lambda + DynamoDB + JWKS via S3+CloudFront) | $5–25 |
-| Extra AWS infra for the second agent (separate API GW + Lambda + logs) | $1–5 |
-| Pricing refresh Lambda (1 invocation/day) | <$1 |
-| Domain + cert | ~$1 |
-| Observability — Grafana Cloud free tier | $0 |
-| **Floor** | **~$15–50** |
+| Item                                                                                | Est. monthly |
+| ----------------------------------------------------------------------------------- | ------------ |
+| 3× cloud accounts at idle (logs, KMS, secrets — AWS counts once even with 2 agents) | $5–15        |
+| Coordinator (Lambda + DynamoDB + JWKS via S3+CloudFront)                            | $5–25        |
+| Extra AWS infra for the second agent (separate API GW + Lambda + logs)              | $1–5         |
+| Pricing refresh Lambda (1 invocation/day)                                           | <$1          |
+| Domain + cert                                                                       | ~$1          |
+| Observability — Grafana Cloud free tier                                             | $0           |
+| **Floor**                                                                           | **~$15–50**  |
 
 **At 1k tasks/month (hobby):** ~$25 infra + ~$20 LLM (Nova-heavy mix) = **~$45/mo**.
 **At 100k tasks/month:** ~$80 infra + ~$1,500–3,500 LLM depending on win distribution = **~$1.6k–3.6k/mo**.
@@ -288,7 +297,7 @@ The headline: **infrastructure is rounding error vs. model tokens at any non-tri
 
 The major design questions are settled (see sections above). What remains is operational hygiene that matters in steady state:
 
-1. **Tokenizer differences are real.** GPT, Claude, Nova, Gemini all tokenize differently. The bid model needs prompt examples calibrated to *its* tokenizer's behavior — don't share bid prompts verbatim across agents without checking.
+1. **Tokenizer differences are real.** GPT, Claude, Nova, Gemini all tokenize differently. The bid model needs prompt examples calibrated to _its_ tokenizer's behavior — don't share bid prompts verbatim across agents without checking.
 2. **Same-operator collusion risk.** Two agents share an AWS account. The coordinator's audit log should treat them as fully independent participants and watch for correlated bidding patterns (both always under-bidding by similar amounts) as a smell of accidental cross-contamination.
 3. **Latency shape.** Adaptive bid timeout caps at 5s. Cross-cloud Azure/GCP legs add ~100–200ms over the AWS-local agents. Acceptable for batch.
 4. **Stochastic-bid noise.** With non-deterministic bid sampling, MAPE measurement requires averaging multiple runs of fixture tasks. Single-shot accuracy numbers are misleading.
