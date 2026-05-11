@@ -24,15 +24,6 @@ importers:
         specifier: workspace:*
         version: link:../protocol
 
-  agent/aws-claude:
-    dependencies:
-      '@agent-tasker/agent':
-        specifier: workspace:*
-        version: link:..
-      '@agent-tasker/protocol':
-        specifier: workspace:*
-        version: link:../../protocol
-
   agent/aws-nova:
     dependencies:
       '@agent-tasker/agent':
@@ -52,6 +43,15 @@ importers:
         version: link:../../protocol
 
   agent/gcp-gemini:
+    dependencies:
+      '@agent-tasker/agent':
+        specifier: workspace:*
+        version: link:..
+      '@agent-tasker/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
+
+  agent/gcp-orchestrator:
     dependencies:
       '@agent-tasker/agent':
         specifier: workspace:*

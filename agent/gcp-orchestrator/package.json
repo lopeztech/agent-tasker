@@ -1,5 +1,5 @@
 {
-  "name": "@agent-tasker/agent-aws-claude",
+  "name": "@agent-tasker/agent-gcp-orchestrator",
   "version": "0.0.0",
   "private": true,
   "type": "module",
