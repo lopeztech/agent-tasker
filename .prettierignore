@@ -1,0 +1,9 @@
+**/dist/
+**/node_modules/
+**/.terraform/
+**/.terraform.lock.hcl
+*.tsbuildinfo
+pnpm-lock.yaml
+
+# Prose docs are hand-authored; let humans own line breaks and emphasis style.
+*.md
