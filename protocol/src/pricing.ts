@@ -11,24 +11,10 @@ export type PricingEntry = z.infer<typeof PricingEntrySchema>;
 // Last-resort fallback prices, used only when the daily refresh job AND its
 // last-known-good cache are both unavailable (see CLAUDE.md → Pricing data).
 // These are conservative published-list-price snapshots and MUST be verified
-// before being relied on; the daily refresh in DynamoDB is the source of
+// before being relied on; the daily refresh in Firestore is the source of
 // truth. Quarterly review tracked by issue #41.
 // Units: USD per 1,000,000 tokens.
 export const FALLBACK_PRICING: Record<string, PricingEntry> = {
-  // AWS Bedrock — Anthropic
-  "anthropic.claude-haiku-3-5": {
-    model_id: "anthropic.claude-haiku-3-5",
-    price_in_usd_per_mtoken: 0.8,
-    price_out_usd_per_mtoken: 4.0,
-    effective_date: "2026-05-15",
-  },
-  "anthropic.claude-sonnet-4-6": {
-    model_id: "anthropic.claude-sonnet-4-6",
-    price_in_usd_per_mtoken: 3.0,
-    price_out_usd_per_mtoken: 15.0,
-    effective_date: "2026-05-15",
-  },
-
   // AWS Bedrock — Amazon Nova
   "amazon.nova-micro": {
     model_id: "amazon.nova-micro",
