@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  node:
+    name: Node (typecheck + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+  terraform:
+    name: Terraform (fmt + validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive infra
+
+      - name: terraform validate (each module)
+        run: |
+          set -euo pipefail
+          failed=0
+          modules=$(find infra -maxdepth 2 -name '*.tf' -type f \
+            -not -path '*/node_modules/*' -not -path '*/.terraform/*' \
+            -exec dirname {} \; | sort -u)
+          for dir in $modules; do
+            echo "::group::validate $dir"
+            (
+              cd "$dir"
+              terraform init -backend=false -input=false -no-color
+              terraform validate -no-color
+            ) || failed=1
+            echo "::endgroup::"
+          done
+          exit $failed
