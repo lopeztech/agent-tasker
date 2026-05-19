@@ -1,0 +1,21 @@
+# Copy to backend.hcl per environment and pass to:
+#   terraform init -backend-config=backend.hcl
+#
+# Manual prereqs (chicken-and-egg with Terraform-managed state):
+#
+#   1. Create the GCP project and attach a billing account (Console or gcloud).
+#   2. Authenticate locally:
+#        gcloud auth application-default login
+#        gcloud config set project YOUR_PROJECT_ID
+#   3. Create the state bucket with versioning:
+#        gcloud storage buckets create gs://agent-tasker-tfstate-CHANGEME \
+#          --project=YOUR_PROJECT_ID --location=us-central1 \
+#          --uniform-bucket-level-access
+#        gcloud storage buckets update gs://agent-tasker-tfstate-CHANGEME \
+#          --versioning
+#
+# GCS provides state locking natively via object generation. No separate
+# lock table required (unlike AWS S3 + DynamoDB).
+
+bucket = "agent-tasker-tfstate-CHANGEME"
+prefix = "project/dev"

@@ -19,7 +19,7 @@ locals {
     {
       project = var.project
       env     = var.env
-      module  = "coordinator"
+      module  = "project"
     },
     var.labels,
   )

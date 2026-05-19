@@ -1,11 +1,7 @@
 # Copy to backend.hcl per environment and pass to:
 #   terraform init -backend-config=backend.hcl
 #
-# The bucket and lock table must exist before init (chicken-and-egg with
-# Terraform-managed state). Bootstrap them by hand or with a separate root.
+# Reuse the bucket created during infra/project bootstrap.
 
-bucket         = "agent-tasker-tfstate-CHANGEME"
-key            = "coordinator/dev/terraform.tfstate"
-region         = "us-east-1"
-dynamodb_table = "agent-tasker-tflocks"
-encrypt        = true
+bucket = "agent-tasker-tfstate-CHANGEME"
+prefix = "coordinator/dev"
