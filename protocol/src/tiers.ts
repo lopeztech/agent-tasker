@@ -25,11 +25,6 @@ export function meetsMinTier(bidTier: Tier, minTier: Tier | undefined): boolean 
 // `null` means the family has no offering at that tier and the agent must
 // decline-to-bid (`capability`) if min_tier matches that slot.
 export const CANONICAL_TIER_MODELS: Record<AgentId, Record<Tier, string | null>> = {
-  "aws-claude": {
-    small: "anthropic.claude-haiku-3-5",
-    medium: null,
-    frontier: "anthropic.claude-sonnet-4-6",
-  },
   "aws-nova": {
     small: "amazon.nova-micro",
     medium: "amazon.nova-lite",
@@ -41,6 +36,15 @@ export const CANONICAL_TIER_MODELS: Record<AgentId, Record<Tier, string | null>>
     frontier: "gpt-5",
   },
   "gcp-gemini": {
+    small: "gemini-2-5-flash",
+    medium: null,
+    frontier: "gemini-2-5-pro",
+  },
+  // GAEP-backed orchestrator. Bid LLM is Gemini Flash; execution is a
+  // GAEP composite over Gemini 2.5 Pro. Bids declare `frontier` since the
+  // underlying execution model is Pro-class — competitive advantage is in
+  // the runtime layer, not raw model quality. See CLAUDE.md → Quality floor.
+  "gcp-orchestrator": {
     small: "gemini-2-5-flash",
     medium: null,
     frontier: "gemini-2-5-pro",
