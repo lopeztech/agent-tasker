@@ -11,9 +11,6 @@
       "dependsOn": ["^build"],
       "inputs": ["src/**", "tsconfig.json", "tsconfig.base.json"]
     },
-    "lint": {
-      "inputs": ["src/**", "*.json"]
-    },
     "test": {
       "dependsOn": ["^build"],
       "inputs": ["src/**", "test/**", "tsconfig.json"]

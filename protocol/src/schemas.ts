@@ -110,13 +110,7 @@ export const ResultSchema = z.object({
 export type Result = z.infer<typeof ResultSchema>;
 
 // Lifecycle states surfaced through GET /tasks/:id.
-export const TASK_STATUSES = [
-  "bidding",
-  "awarded",
-  "executing",
-  "completed",
-  "failed",
-] as const;
+export const TASK_STATUSES = ["bidding", "awarded", "executing", "completed", "failed"] as const;
 export const TaskStatusSchema = z.enum(TASK_STATUSES);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
