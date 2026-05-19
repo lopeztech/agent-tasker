@@ -4,3 +4,4 @@ export * from "./agents.js";
 export * from "./tiers.js";
 export * from "./pricing.js";
 export * from "./schemas.js";
+export * from "./auth.js";
