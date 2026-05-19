@@ -1,10 +1,10 @@
 variable "project_id" {
-  description = "GCP project ID. Must be bootstrapped via infra/project first."
+  description = "Existing GCP project ID. Project must be created and have a billing account attached before terraform apply (see backend.hcl.example for bootstrap steps)."
   type        = string
 }
 
 variable "project" {
-  description = "Project name prefix used in resource naming and labels."
+  description = "Project name prefix used in resource naming and labels (not the GCP project ID)."
   type        = string
   default     = "agent-tasker"
 }
@@ -20,7 +20,7 @@ variable "env" {
 }
 
 variable "region" {
-  description = "GCP region for the coordinator stack."
+  description = "Default GCP region for regional resources."
   type        = string
   default     = "us-central1"
 }

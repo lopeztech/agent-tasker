@@ -17,6 +17,7 @@ terraform {
   #
   #   terraform init -backend-config=backend.hcl
   #
-  # See backend.hcl.example.
+  # See backend.hcl.example. GCS handles state locking natively via object
+  # generation — no separate lock table required (unlike AWS S3 + DynamoDB).
   backend "gcs" {}
 }
