@@ -6,12 +6,15 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
     "@agent-tasker/agent": "workspace:*",
-    "@agent-tasker/protocol": "workspace:*"
+    "@agent-tasker/protocol": "workspace:*",
+    "@google-cloud/vertexai": "^1.12.0",
+    "zod": "^3.25.76"
   }
 }

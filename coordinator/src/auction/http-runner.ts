@@ -7,6 +7,7 @@ import {
   type JwtPhase,
   type PricingEntry,
   type TaskId,
+  type TaskSpec,
   isNoBid,
 } from "@agent-tasker/protocol";
 import type { LedgerStore } from "../ledger/store.js";
@@ -94,7 +95,7 @@ export class HttpAuctionRunner implements AuctionRunner {
       return;
     }
 
-    const responses = await this.gatherBids(taskId);
+    const responses = await this.gatherBids(taskId, task.spec);
     for (const response of responses) {
       await this.opts.store.recordBidResponse({
         taskId,
@@ -129,7 +130,7 @@ export class HttpAuctionRunner implements AuctionRunner {
     await this.opts.store.markExecuting(taskId);
 
     try {
-      const result = await this.execute(taskId, winner.agent_id);
+      const result = await this.execute(taskId, winner.agent_id, task.spec);
       await this.opts.store.completeTask({ taskId, result });
     } catch (err) {
       await this.opts.store.failTask({
@@ -143,9 +144,10 @@ export class HttpAuctionRunner implements AuctionRunner {
   // BidResponse per agent. Agents that error / time out / return junk are
   // translated to a synthetic `no_bid: internal_error` so the ledger has a
   // record per agent.
-  private async gatherBids(taskId: TaskId): Promise<BidResponse[]> {
+  private async gatherBids(taskId: TaskId, spec: TaskSpec): Promise<BidResponse[]> {
     const timeoutMs = this.opts.bidTimeoutMs ?? DEFAULT_BID_TIMEOUT_MS;
     const fetchImpl = this.opts.fetch ?? fetch;
+    const body = JSON.stringify({ task_id: taskId, spec });
     return Promise.all(
       this.opts.agents.map(async (agent): Promise<BidResponse> => {
         try {
@@ -164,7 +166,7 @@ export class HttpAuctionRunner implements AuctionRunner {
                 "content-type": "application/json",
                 authorization: `Bearer ${token}`,
               },
-              body: JSON.stringify({ task_id: taskId }),
+              body,
               signal: controller.signal,
             });
           } finally {
@@ -173,8 +175,8 @@ export class HttpAuctionRunner implements AuctionRunner {
           if (!res.ok) {
             return syntheticNoBid(taskId, agent.agentId, `agent returned ${res.status}`);
           }
-          const body = (await res.json()) as unknown;
-          const parsed = BidResponseSchema.safeParse(body);
+          const responseBody = (await res.json()) as unknown;
+          const parsed = BidResponseSchema.safeParse(responseBody);
           if (!parsed.success) {
             return syntheticNoBid(taskId, agent.agentId, "malformed bid response");
           }
@@ -192,7 +194,7 @@ export class HttpAuctionRunner implements AuctionRunner {
     );
   }
 
-  private async execute(taskId: TaskId, agentId: AgentId) {
+  private async execute(taskId: TaskId, agentId: AgentId, spec: TaskSpec) {
     const agent = this.opts.agents.find((a) => a.agentId === agentId);
     if (!agent) {
       throw new Error(`winner ${agentId} not in agent registry`);
@@ -210,7 +212,7 @@ export class HttpAuctionRunner implements AuctionRunner {
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ task_id: taskId }),
+        body: JSON.stringify({ task_id: taskId, spec }),
         signal: controller.signal,
       });
     } finally {

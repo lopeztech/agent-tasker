@@ -118,3 +118,18 @@ export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export const JWT_PHASES = ["bid", "award", "execute", "reject"] as const;
 export const JwtPhaseSchema = z.enum(JWT_PHASES);
 export type JwtPhase = z.infer<typeof JwtPhaseSchema>;
+
+// Wire shapes the coordinator sends to each agent. JWT (auth, phase) goes
+// in the Authorization header; the body carries the task_id + spec so the
+// agent can bid/execute without round-tripping back to the coordinator.
+export const AnnounceRequestSchema = z.object({
+  task_id: TaskIdSchema,
+  spec: TaskSpecSchema,
+});
+export type AnnounceRequest = z.infer<typeof AnnounceRequestSchema>;
+
+export const ExecuteRequestSchema = z.object({
+  task_id: TaskIdSchema,
+  spec: TaskSpecSchema,
+});
+export type ExecuteRequest = z.infer<typeof ExecuteRequestSchema>;

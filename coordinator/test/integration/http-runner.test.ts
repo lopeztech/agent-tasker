@@ -91,9 +91,9 @@ describe("HttpAuctionRunner", () => {
     const taskId = "task-happy-1";
     const gemini = await startFakeAgent({
       agentId: "gcp-gemini",
-      onBid: (id) => bidFor("gcp-gemini", 0.02, id),
-      onExecute: (id) => ({
-        task_id: id,
+      onBid: (req) => bidFor("gcp-gemini", 0.02, req.task_id),
+      onExecute: (req) => ({
+        task_id: req.task_id,
         agent_id: "gcp-gemini",
         output: "gemini did it",
         actual_usage: { input_tokens: 4100, output_tokens: 950 },
@@ -101,7 +101,7 @@ describe("HttpAuctionRunner", () => {
     });
     const nova = await startFakeAgent({
       agentId: "aws-nova",
-      onBid: (id) => bidFor("aws-nova", 0.04, id),
+      onBid: (req) => bidFor("aws-nova", 0.04, req.task_id),
     });
     agents.push(gemini, nova);
 
@@ -138,7 +138,7 @@ describe("HttpAuctionRunner", () => {
     const taskId = "task-single";
     const gemini = await startFakeAgent({
       agentId: "gcp-gemini",
-      onBid: (id) => bidFor("gcp-gemini", 0.02, id),
+      onBid: (req) => bidFor("gcp-gemini", 0.02, req.task_id),
     });
     const nova = await startFakeAgent({
       agentId: "aws-nova",
@@ -170,8 +170,8 @@ describe("HttpAuctionRunner", () => {
     const taskId = "task-all-decline";
     const gemini = await startFakeAgent({
       agentId: "gcp-gemini",
-      onBid: (id): BidResponse => ({
-        task_id: id,
+      onBid: (req): BidResponse => ({
+        task_id: req.task_id,
         agent_id: "gcp-gemini",
         status: "no_bid",
         reason: "context_overflow",
@@ -179,8 +179,8 @@ describe("HttpAuctionRunner", () => {
     });
     const nova = await startFakeAgent({
       agentId: "aws-nova",
-      onBid: (id): BidResponse => ({
-        task_id: id,
+      onBid: (req): BidResponse => ({
+        task_id: req.task_id,
         agent_id: "aws-nova",
         status: "no_bid",
         reason: "policy",
@@ -206,7 +206,7 @@ describe("HttpAuctionRunner", () => {
     const taskId = "task-unreachable";
     const gemini = await startFakeAgent({
       agentId: "gcp-gemini",
-      onBid: (id) => bidFor("gcp-gemini", 0.02, id),
+      onBid: (req) => bidFor("gcp-gemini", 0.02, req.task_id),
     });
     agents.push(gemini);
 
@@ -233,7 +233,7 @@ describe("HttpAuctionRunner", () => {
     const taskId = "task-execute-fail";
     const gemini = await startFakeAgent({
       agentId: "gcp-gemini",
-      onBid: (id) => bidFor("gcp-gemini", 0.02, id),
+      onBid: (req) => bidFor("gcp-gemini", 0.02, req.task_id),
       onExecute: () => {
         throw new Error("model overloaded");
       },

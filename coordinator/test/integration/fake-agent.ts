@@ -1,28 +1,33 @@
 import { serve, type ServerType } from "@hono/node-server";
 import type { AddressInfo } from "node:net";
 import { Hono } from "hono";
-import type { AgentId, BidResponse, Result } from "@agent-tasker/protocol";
+import {
+  AnnounceRequestSchema,
+  ExecuteRequestSchema,
+  type AgentId,
+  type AnnounceRequest,
+  type BidResponse,
+  type ExecuteRequest,
+  type Result,
+} from "@agent-tasker/protocol";
 
-// Stand-in agent server. The real AuctionRunner (#47 + #52 + #53) will
-// POST to /bid and /execute on each agent's base URL; this harness lets
-// us stand up a configurable fake on an ephemeral port and assert on what
-// the runner did. Today it has no consumer in coordinator/ but the unit
-// tests in fake-agent.test.ts pin its behavior so the harness is ready
-// to drop in when the real runner lands.
+// Stand-in agent server. The real `HttpAuctionRunner` POSTs to /bid and
+// /execute on each agent's base URL with `{ task_id, spec }` bodies; this
+// harness lets tests stand up a configurable fake on an ephemeral port
+// and assert on what the runner did.
 
 export interface FakeAgentOptions {
   agentId: AgentId;
-  // Bid handler. Called with the announced taskId. Default: declines.
-  onBid?: (taskId: string) => BidResponse;
-  // Execute handler. Called with the awarded taskId. Default: returns a
-  // canned successful result.
-  onExecute?: (taskId: string) => Result;
+  // Bid handler. Receives the validated announce request. Default: declines.
+  onBid?: (req: AnnounceRequest) => BidResponse | Promise<BidResponse>;
+  // Execute handler. Receives the validated execute request. Default:
+  // returns a canned successful result.
+  onExecute?: (req: ExecuteRequest) => Result | Promise<Result>;
 }
 
 export interface FakeAgent {
   readonly agentId: AgentId;
   readonly url: string;
-  // Number of /bid and /execute calls observed. Reset per instance.
   bidCalls: number;
   executeCalls: number;
   stop(): Promise<void>;
@@ -34,8 +39,8 @@ export async function startFakeAgent(opts: FakeAgentOptions): Promise<FakeAgent>
 
   const onBid =
     opts.onBid ??
-    ((taskId: string): BidResponse => ({
-      task_id: taskId,
+    ((req: AnnounceRequest): BidResponse => ({
+      task_id: req.task_id,
       agent_id: agentId,
       status: "no_bid",
       reason: "capability",
@@ -43,8 +48,8 @@ export async function startFakeAgent(opts: FakeAgentOptions): Promise<FakeAgent>
 
   const onExecute =
     opts.onExecute ??
-    ((taskId: string): Result => ({
-      task_id: taskId,
+    ((req: ExecuteRequest): Result => ({
+      task_id: req.task_id,
       agent_id: agentId,
       output: `stub output from ${agentId}`,
       actual_usage: { input_tokens: 100, output_tokens: 50 },
@@ -55,16 +60,18 @@ export async function startFakeAgent(opts: FakeAgentOptions): Promise<FakeAgent>
 
   app.post("/bid", async (c) => {
     state.bidCalls += 1;
-    const body = (await c.req.json()) as { task_id?: string };
-    if (!body.task_id) return c.json({ error: "task_id required" }, 400);
-    return c.json(onBid(body.task_id));
+    const body = (await c.req.json()) as unknown;
+    const parsed = AnnounceRequestSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid request" }, 400);
+    return c.json(await onBid(parsed.data));
   });
 
   app.post("/execute", async (c) => {
     state.executeCalls += 1;
-    const body = (await c.req.json()) as { task_id?: string };
-    if (!body.task_id) return c.json({ error: "task_id required" }, 400);
-    return c.json(onExecute(body.task_id));
+    const body = (await c.req.json()) as unknown;
+    const parsed = ExecuteRequestSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid request" }, 400);
+    return c.json(await onExecute(parsed.data));
   });
 
   const server: ServerType = await new Promise((resolve) => {
