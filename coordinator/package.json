@@ -14,6 +14,7 @@
   "dependencies": {
     "@agent-tasker/protocol": "workspace:*",
     "@google-cloud/firestore": "^8.6.0",
+    "@hono/node-server": "^2.0.3",
     "hono": "^4.12.21",
     "jose": "^6.2.3",
     "ulid": "^3.0.2",

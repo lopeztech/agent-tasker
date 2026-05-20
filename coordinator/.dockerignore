@@ -1,0 +1,10 @@
+**/node_modules/
+**/dist/
+**/.terraform/
+**/*.tsbuildinfo
+.git/
+.github/
+.husky/
+docs/
+*.md
+.DS_Store
