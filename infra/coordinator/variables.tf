@@ -30,3 +30,15 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "firestore_location" {
+  description = "Firestore database location. Multi-region (`nam5`, `eur3`) recommended for durability; single-region (`us-central1`, etc.) is cheaper. One Firestore database per project — once set this cannot change."
+  type        = string
+  default     = "nam5"
+}
+
+variable "firestore_delete_protection" {
+  description = "Whether the GCP-side delete-protection flag is enabled on the Firestore database. Defaults to disabled so dev environments can iterate quickly; set to true in prod to require a Terraform-driven flag flip before destroy is permitted."
+  type        = bool
+  default     = false
+}
