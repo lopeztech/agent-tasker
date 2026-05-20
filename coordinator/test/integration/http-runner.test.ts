@@ -1,0 +1,253 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type {
+  AgentId,
+  Bid,
+  BidResponse,
+  JwtPhase,
+  PricingEntry,
+  TaskId,
+} from "@agent-tasker/protocol";
+import { InMemoryLedgerStore } from "../../src/ledger/in-memory-store.js";
+import {
+  HttpAuctionRunner,
+  type AgentEndpoint,
+  type TaskTokenSigner,
+} from "../../src/auction/http-runner.js";
+import { startFakeAgent, type FakeAgent } from "./fake-agent.js";
+
+const PRICING_SNAPSHOT: PricingEntry[] = [
+  {
+    model_id: "gemini-2-5-pro",
+    price_in_usd_per_mtoken: 1.25,
+    price_out_usd_per_mtoken: 10.0,
+    effective_date: "2026-05-15",
+  },
+];
+
+// Token signer that returns a deterministic stub string. The FakeAgent
+// doesn't verify JWTs (that path is covered by agent/test/jwt/middleware.test.ts);
+// this test just confirms the runner *sends* a Bearer for each request.
+const signedTokens: Array<{ agentId: AgentId; phase: JwtPhase }> = [];
+const stubSigner: TaskTokenSigner = {
+  async sign({ agentId, phase }) {
+    signedTokens.push({ agentId, phase });
+    return `stub-token.${agentId}.${phase}`;
+  },
+};
+
+function bidFor(agentId: AgentId, bidUsd: number, taskId: string): Bid {
+  return {
+    task_id: taskId,
+    agent_id: agentId,
+    tier: "frontier",
+    model_family: agentId.startsWith("gcp") ? "gemini" : agentId.startsWith("aws") ? "nova" : "gpt",
+    model_id: "stub-model",
+    est_input_tokens: 4000,
+    est_output_tokens: 1000,
+    price_in_usd_per_mtoken: 1.25,
+    price_out_usd_per_mtoken: 10.0,
+    bid_usd: bidUsd,
+    expires_at: "2026-05-21T01:00:00Z",
+    signature: "stub",
+  };
+}
+
+let store: InMemoryLedgerStore;
+let agents: FakeAgent[];
+
+beforeEach(() => {
+  signedTokens.length = 0;
+  store = new InMemoryLedgerStore();
+  agents = [];
+});
+
+afterEach(async () => {
+  await Promise.all(agents.map((a) => a.stop()));
+});
+
+async function startAuction(opts: {
+  taskId: TaskId;
+  endpoints: AgentEndpoint[];
+  bidTimeoutMs?: number;
+}): Promise<HttpAuctionRunner> {
+  await store.createTask({
+    taskId: opts.taskId,
+    spec: { prompt: "summarize the transcript" },
+  });
+  const runner = new HttpAuctionRunner({
+    store,
+    agents: opts.endpoints,
+    tokenSigner: stubSigner,
+    pricingSnapshot: PRICING_SNAPSHOT,
+    ...(opts.bidTimeoutMs !== undefined ? { bidTimeoutMs: opts.bidTimeoutMs } : {}),
+  });
+  runner.start(opts.taskId);
+  await runner.settle(opts.taskId);
+  return runner;
+}
+
+describe("HttpAuctionRunner", () => {
+  it("happy path: two bidders, lowest wins, Vickrey price = other bid", async () => {
+    const taskId = "task-happy-1";
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (id) => bidFor("gcp-gemini", 0.02, id),
+      onExecute: (id) => ({
+        task_id: id,
+        agent_id: "gcp-gemini",
+        output: "gemini did it",
+        actual_usage: { input_tokens: 4100, output_tokens: 950 },
+      }),
+    });
+    const nova = await startFakeAgent({
+      agentId: "aws-nova",
+      onBid: (id) => bidFor("aws-nova", 0.04, id),
+    });
+    agents.push(gemini, nova);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        { agentId: "aws-nova", baseUrl: nova.url },
+      ],
+    });
+
+    const task = await store.getTask(taskId);
+    expect(task?.status).toBe("completed");
+    expect(task?.winner_agent_id).toBe("gcp-gemini");
+    expect(task?.winning_bid_usd).toBe(0.02);
+    // Second-lowest is 0.04, so auction_price = 0.04
+    expect(task?.auction_price_usd).toBe(0.04);
+    expect(task?.result?.output).toBe("gemini did it");
+
+    // Per-phase JWTs: 2× bid + 1× execute = 3 total
+    expect(signedTokens).toEqual([
+      { agentId: "gcp-gemini", phase: "bid" },
+      { agentId: "aws-nova", phase: "bid" },
+      { agentId: "gcp-gemini", phase: "execute" },
+    ]);
+
+    expect(gemini.bidCalls).toBe(1);
+    expect(gemini.executeCalls).toBe(1);
+    expect(nova.bidCalls).toBe(1);
+    expect(nova.executeCalls).toBe(0);
+  });
+
+  it("single bidder: degenerate Vickrey price equals the winner's own bid", async () => {
+    const taskId = "task-single";
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (id) => bidFor("gcp-gemini", 0.02, id),
+    });
+    const nova = await startFakeAgent({
+      agentId: "aws-nova",
+      // default handler declines
+    });
+    agents.push(gemini, nova);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        { agentId: "aws-nova", baseUrl: nova.url },
+      ],
+    });
+
+    const task = await store.getTask(taskId);
+    expect(task?.status).toBe("completed");
+    expect(task?.winner_agent_id).toBe("gcp-gemini");
+    expect(task?.winning_bid_usd).toBe(0.02);
+    expect(task?.auction_price_usd).toBe(0.02);
+
+    // Nova's decline was still recorded
+    const bids = await store.listBids(taskId);
+    const novaRecord = bids.find((b) => b.agent_id === "aws-nova");
+    expect(novaRecord?.response).toMatchObject({ status: "no_bid", reason: "capability" });
+  });
+
+  it("all agents decline → task fails with reason listing decline codes", async () => {
+    const taskId = "task-all-decline";
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (id): BidResponse => ({
+        task_id: id,
+        agent_id: "gcp-gemini",
+        status: "no_bid",
+        reason: "context_overflow",
+      }),
+    });
+    const nova = await startFakeAgent({
+      agentId: "aws-nova",
+      onBid: (id): BidResponse => ({
+        task_id: id,
+        agent_id: "aws-nova",
+        status: "no_bid",
+        reason: "policy",
+      }),
+    });
+    agents.push(gemini, nova);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        { agentId: "aws-nova", baseUrl: nova.url },
+      ],
+    });
+
+    const task = await store.getTask(taskId);
+    expect(task?.status).toBe("failed");
+    expect(task?.failure_reason).toContain("context_overflow");
+    expect(task?.failure_reason).toContain("policy");
+  });
+
+  it("unreachable agent is treated as no_bid: internal_error", async () => {
+    const taskId = "task-unreachable";
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (id) => bidFor("gcp-gemini", 0.02, id),
+    });
+    agents.push(gemini);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        // Port 1 should always refuse connections; runner should treat as decline
+        { agentId: "aws-nova", baseUrl: "http://127.0.0.1:1" },
+      ],
+      bidTimeoutMs: 1500,
+    });
+
+    const task = await store.getTask(taskId);
+    expect(task?.status).toBe("completed");
+    expect(task?.winner_agent_id).toBe("gcp-gemini");
+
+    const bids = await store.listBids(taskId);
+    const novaRecord = bids.find((b) => b.agent_id === "aws-nova");
+    expect(novaRecord?.response).toMatchObject({ status: "no_bid", reason: "internal_error" });
+  });
+
+  it("execute failure → task fails with reason mentioning the winner", async () => {
+    const taskId = "task-execute-fail";
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (id) => bidFor("gcp-gemini", 0.02, id),
+      onExecute: () => {
+        throw new Error("model overloaded");
+      },
+    });
+    agents.push(gemini);
+
+    await startAuction({
+      taskId,
+      endpoints: [{ agentId: "gcp-gemini", baseUrl: gemini.url }],
+    });
+
+    const task = await store.getTask(taskId);
+    expect(task?.status).toBe("failed");
+    expect(task?.failure_reason).toMatch(/gcp-gemini/);
+    expect(task?.failure_reason).toMatch(/500|execute/i);
+  });
+});
