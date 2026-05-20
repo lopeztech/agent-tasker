@@ -19,5 +19,9 @@
     "jose": "^6.2.3",
     "ulid": "^3.0.2",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@agent-tasker/agent": "workspace:*",
+    "@agent-tasker/agent-gcp-gemini": "workspace:*"
   }
 }
