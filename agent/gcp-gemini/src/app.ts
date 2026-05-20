@@ -1,0 +1,77 @@
+import { Hono } from "hono";
+import {
+  AnnounceRequestSchema,
+  ExecuteRequestSchema,
+  type PricingEntry,
+} from "@agent-tasker/protocol";
+import { getTokenClaims, requireTaskToken, type TaskTokenVerifier } from "@agent-tasker/agent";
+import { handleBid } from "./bid/handler.js";
+import type { BidEstimator } from "./bid/estimator.js";
+import { handleExecute } from "./execute/handler.js";
+import type { GenerativeTextClient } from "./execute/runner.js";
+
+export interface CreateAppOptions {
+  verifier: TaskTokenVerifier;
+  estimator: BidEstimator;
+  client: GenerativeTextClient;
+  pricing: PricingEntry;
+}
+
+// Returns a Hono app wired with /health (open), /bid (JWT-verified, phase=bid),
+// and /execute (JWT-verified, phase=execute). Same factory pattern as the
+// coordinator — one app per process, never share across tests.
+export function createApp(opts: CreateAppOptions) {
+  const app = new Hono();
+
+  app.get("/health", (c) => c.json({ ok: true, agent_id: "gcp-gemini" }));
+
+  app.post("/bid", requireTaskToken(opts.verifier, "bid"), async (c) => {
+    const body = (await c.req.json().catch(() => null)) as unknown;
+    const parsed = AnnounceRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: { code: "invalid_request", message: "bad announce body" } }, 400);
+    }
+    // Defence-in-depth: the JWT's task_id claim and the body's task_id must
+    // match, otherwise a stolen-but-valid token from one task could be used
+    // to elicit bids on another.
+    const claims = getTokenClaims(c);
+    if (claims.task_id !== parsed.data.task_id) {
+      return c.json(
+        { error: { code: "unauthorized", message: "token task_id does not match body" } },
+        401,
+      );
+    }
+    const result = await handleBid(parsed.data, {
+      estimator: opts.estimator,
+      pricing: opts.pricing,
+    });
+    return c.json(result);
+  });
+
+  app.post("/execute", requireTaskToken(opts.verifier, "execute"), async (c) => {
+    const body = (await c.req.json().catch(() => null)) as unknown;
+    const parsed = ExecuteRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: { code: "invalid_request", message: "bad execute body" } }, 400);
+    }
+    const claims = getTokenClaims(c);
+    if (claims.task_id !== parsed.data.task_id) {
+      return c.json(
+        { error: { code: "unauthorized", message: "token task_id does not match body" } },
+        401,
+      );
+    }
+    const result = await handleExecute(parsed.data, { client: opts.client });
+    return c.json(result);
+  });
+
+  app.onError((err, c) => {
+    console.error("gcp-gemini unhandled error", err);
+    return c.json(
+      { error: { code: "internal_error", message: "agent failed to handle request" } },
+      500,
+    );
+  });
+
+  return app;
+}
