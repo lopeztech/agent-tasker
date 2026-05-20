@@ -54,3 +54,33 @@ variable "jwks_delete_protection" {
   type        = bool
   default     = false
 }
+
+variable "coordinator_image" {
+  description = "Fully-qualified container image for the coordinator Cloud Run service (e.g. us-central1-docker.pkg.dev/PROJECT/agent-tasker-dev-coordinator/coordinator:abc123). Defaults to Google's hello placeholder so `terraform apply` succeeds on a fresh project before the real image has been built and pushed."
+  type        = string
+  default     = "gcr.io/cloudrun/hello"
+}
+
+variable "coordinator_min_instances" {
+  description = "Minimum Cloud Run instances. Zero scales to nothing at idle; bump to 1 for prod-grade warm-start behavior."
+  type        = number
+  default     = 0
+}
+
+variable "coordinator_max_instances" {
+  description = "Cloud Run autoscale cap. Acts as a cost backstop more than a capacity ceiling — the in-process auction kickoff per request is cheap."
+  type        = number
+  default     = 10
+}
+
+variable "coordinator_request_timeout_seconds" {
+  description = "Per-request timeout. Must exceed the adaptive bid window cap (5s from CLAUDE.md) plus expected execute latency. 60s gives plenty of headroom."
+  type        = number
+  default     = 60
+}
+
+variable "coordinator_delete_protection" {
+  description = "Cloud Run service-level delete protection. False in dev for iteration; true in prod."
+  type        = bool
+  default     = false
+}

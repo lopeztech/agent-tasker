@@ -92,6 +92,9 @@ importers:
       '@google-cloud/firestore':
         specifier: ^8.6.0
         version: 8.6.0
+      '@hono/node-server':
+        specifier: ^2.0.3
+        version: 2.0.3(hono@4.12.21)
       hono:
         specifier: ^4.12.21
         version: 4.12.21
@@ -185,6 +188,12 @@ packages:
     resolution: {integrity: sha512-wtF6h+DY6M3YaDBPAmvuuA6jV8Sif9MjtOI5euKFWRgCDl5PeDpPsHR9u2l6St5ceY8AZgoNDww5+HvEsXFsGg==}
     engines: {node: '>=6'}
     hasBin: true
+
+  '@hono/node-server@2.0.3':
+    resolution: {integrity: sha512-a0jV+/HRe3G5zjFID3zObAQFdkl6zpxTuqktdDDXS3MJKcrZIkB8OkLpNBlY/WXFqv2HF4a0takPej+aNFczWA==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -1489,6 +1498,10 @@ snapshots:
       long: 5.3.2
       protobufjs: 7.6.0
       yargs: 17.7.2
+
+  '@hono/node-server@2.0.3(hono@4.12.21)':
+    dependencies:
+      hono: 4.12.21
 
   '@humanfs/core@0.19.2':
     dependencies:
