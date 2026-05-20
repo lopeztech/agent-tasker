@@ -1,1 +1,1 @@
-export const AGENT_ID = "gcp-gemini";
+export * from "./bid/index.js";
