@@ -15,11 +15,15 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@agent-tasker/protocol": "workspace:*"
+    "@agent-tasker/protocol": "workspace:*",
+    "hono": "^4.12.21",
+    "jose": "^6.2.3",
+    "zod": "^3.25.76"
   }
 }
