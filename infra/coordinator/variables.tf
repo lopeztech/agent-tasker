@@ -42,3 +42,15 @@ variable "firestore_delete_protection" {
   type        = bool
   default     = false
 }
+
+variable "jwks_bucket_location" {
+  description = "Location for the JWKS GCS bucket. Multi-region (`US`, `EU`) recommended for low-latency reads from anywhere; single-region (`us-central1`, etc.) is cheaper. Phase 1 traffic is intra-project so this rarely matters."
+  type        = string
+  default     = "US"
+}
+
+variable "jwks_delete_protection" {
+  description = "Whether `terraform destroy` is allowed to delete the JWKS bucket. False in dev for iteration; true in prod so accidental destroys don't drop the published public keys (which would break every in-flight token)."
+  type        = bool
+  default     = false
+}
