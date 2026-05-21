@@ -9,13 +9,13 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
-  // Cloud Function sources are CommonJS Node modules deployed straight to
-  // GCP — not part of the workspace TS build. Give them Node globals so
-  // `exports` / `console` / `Buffer` don't trip no-undef.
+  // Cloud Function sources are ESM Node modules deployed straight to GCP
+  // — not part of the workspace TS build. Give them Node globals so
+  // `process` / `console` / `Buffer` don't trip no-undef.
   {
     files: ["infra/**/functions/**/*.js"],
     languageOptions: {
-      sourceType: "commonjs",
+      sourceType: "module",
       globals: { ...globals.node },
     },
   },
