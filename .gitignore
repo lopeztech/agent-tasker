@@ -34,3 +34,6 @@ override.tf.json
 *_override.tf.json
 .terraformrc
 terraform.rc
+
+# function-source archives produced by hashicorp/archive_file at plan time
+infra/**/functions/**/.dist/
