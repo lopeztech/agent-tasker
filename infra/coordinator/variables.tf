@@ -84,3 +84,15 @@ variable "coordinator_delete_protection" {
   type        = bool
   default     = false
 }
+
+variable "pricing_refresh_schedule" {
+  description = "Cron expression (Etc/UTC) for the daily pricing-refresh job. Default 04:00 UTC — overnight in the Americas, mid-morning in EU, low coordinator traffic everywhere."
+  type        = string
+  default     = "0 4 * * *"
+}
+
+variable "pricing_refresh_delete_protection" {
+  description = "Whether `terraform destroy` is allowed to delete the function-source bucket. False in dev (rapid iteration); true in prod (rollback-from-archived-version is the recovery path)."
+  type        = bool
+  default     = false
+}

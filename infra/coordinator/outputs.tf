@@ -32,3 +32,13 @@ output "coordinator_image_repo" {
   description = "Artifact Registry path agent CI/CD pushes coordinator images to. Format: LOCATION-docker.pkg.dev/PROJECT/REPO."
   value       = "${google_artifact_registry_repository.coordinator.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.coordinator.repository_id}"
 }
+
+output "pricing_refresh_function_url" {
+  description = "HTTPS URL of the pricing-refresh Cloud Function. Useful for ad-hoc invocation via `gcloud functions call` or for issuing OIDC-signed curls when debugging."
+  value       = google_cloudfunctions2_function.pricing_refresh.service_config[0].uri
+}
+
+output "pricing_refresh_runtime_service_account_email" {
+  description = "Pricing-refresh function runtime SA. #38 adds roles/billing.viewer to this principal so the Cloud Billing Catalog parser can fetch SKUs."
+  value       = google_service_account.pricing_refresh_runtime.email
+}
