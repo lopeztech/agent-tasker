@@ -1,0 +1,98 @@
+name: Quarterly pricing-parser review reminder
+
+# Opens an issue every quarter so vendor price drift doesn't go unnoticed.
+# Vendor pricing pages, Cloud Billing Catalog SKU descriptions, and our
+# FALLBACK_PRICING constants all rot quietly — this is the calendar item
+# CLAUDE.md says we need.
+#
+# Cron is in UTC. 13:00 UTC on the 1st of Jan / Apr / Jul / Oct is a
+# weekday-business-hours hit for most contributors regardless of TZ.
+on:
+  schedule:
+    - cron: "0 13 1 1,4,7,10 *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  open-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open quarterly review issue (idempotent per title)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const month = now.getUTCMonth() + 1;
+            const quarter = month <= 3 ? 1 : month <= 6 ? 2 : month <= 9 ? 3 : 4;
+            const title = `[chore] Pricing-parser review — ${year} Q${quarter}`;
+
+            // Skip if an open issue with this exact title already exists.
+            // workflow_dispatch re-runs shouldn't pile up duplicates.
+            const existing = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100,
+            });
+            if (existing.some((i) => i.title === title)) {
+              core.info(`Open issue already exists: ${title}`);
+              return;
+            }
+
+            const body = [
+              "Quarterly drift check on pricing-related code. CLAUDE.md flags vendor",
+              "pricing pages and APIs as silently-changing — without this ticket, every",
+              "bid is happily computed against stale numbers.",
+              "",
+              "## Checklist",
+              "",
+              "- [ ] **`/protocol/src/pricing.ts` FALLBACK_PRICING** — for each entry,",
+              "      open the vendor's public pricing page and verify",
+              "      `price_in_usd_per_mtoken` / `price_out_usd_per_mtoken` still match.",
+              "      Bump `effective_date` on each row touched.",
+              "",
+              "- [ ] **`/infra/coordinator/functions/pricing-refresh/index.js` FALLBACK_PRICING**",
+              "      — must match `/protocol`'s copy byte-for-byte. (Long-term we'll generate",
+              "      one from the other; for now it's hand-synced and this checklist is the",
+              "      safety net.)",
+              "",
+              "- [ ] **`CANONICAL_TIER_MODELS` in `/protocol/src/tiers.ts`** — each",
+              "      `model_id` still exists at the vendor and still maps to the right tier.",
+              "",
+              "- [ ] **Cloud Billing Catalog probe** (once the live-Catalog follow-up to",
+              "      #38 lands) — re-run a one-off probe against Vertex AI's SKU list and",
+              "      confirm the description-pattern regexes still match.",
+              "",
+              "- [ ] **Eval-replay sanity** — pick three recent settled tasks from the",
+              "      ledger and re-derive `bid_usd` from the persisted `pricing_snapshot`.",
+              "      Should equal the recorded `bid_usd` exactly. If not, the snapshot",
+              "      capture path has drifted.",
+              "",
+              "## Process",
+              "",
+              "1. Walk the checklist top-to-bottom; tick each item.",
+              "2. Open small PRs per source file touched — don't bundle.",
+              "3. Close this issue when every box is checked, or roll the open items into",
+              "   a dated follow-up if a deeper investigation is needed.",
+              "",
+              "## Why this exists",
+              "",
+              "See CLAUDE.md → Pricing data: _\"Parsing logic is the brittle bit — vendor",
+              "pages and APIs drift silently. Calendar reminder to verify the parsers",
+              "still work.\"_",
+              "",
+              "Opened automatically by `.github/workflows/pricing-review-reminder.yml`.",
+            ].join("\n");
+
+            const created = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ["type:chore", "area:pricing"],
+            });
+            core.info(`Opened ${created.data.html_url}`);
