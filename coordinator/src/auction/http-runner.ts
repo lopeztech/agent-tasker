@@ -33,12 +33,11 @@ import type { AuctionRunner } from "./runner.js";
 //   auction price falls back to that bidder's own bid.
 // - Awards, marks executing, POSTs to {winner.baseUrl}/execute, records
 //   the result, completes.
-// - Any unrecoverable failure → store.failTask. Re-auction on /execute
-//   failure is #53.
+// - Re-auctions on /execute failure by excluding the failed winner and
+//   selecting from remaining eligible bids while at least two agents remain.
 //
 // What's still out of scope (separate issues):
 // - Adaptive bid timeout (#52)
-// - Re-auction on /execute failure (#53)
 // - Score-weighted auction layer (#81)
 
 export interface AgentEndpoint {
@@ -133,30 +132,57 @@ export class HttpAuctionRunner implements AuctionRunner {
       return;
     }
 
-    const award = selectVickreyAward(
-      eligibleBids,
-      this.opts.accuracyByAgent,
-      this.opts.tieBreakRandom,
-    );
+    await this.awardAndExecuteWithReauction(taskId, task.spec, eligibleBids);
+  }
 
-    await this.opts.store.awardTask({
-      taskId,
-      winnerAgentId: award.winner.agent_id,
-      auctionPriceUsd: award.auctionPriceUsd,
-      winningBidUsd: award.winningBidUsd,
-    });
+  private async awardAndExecuteWithReauction(
+    taskId: TaskId,
+    spec: TaskSpec,
+    eligibleBids: readonly Bid[],
+  ): Promise<void> {
+    const remainingBids = [...eligibleBids];
+    const failures: string[] = [];
 
-    await this.opts.store.markExecuting(taskId);
+    while (remainingBids.length > 0) {
+      const award = selectVickreyAward(
+        remainingBids,
+        this.opts.accuracyByAgent,
+        this.opts.tieBreakRandom,
+      );
 
-    try {
-      const result = await this.execute(taskId, award.winner.agent_id, task.spec);
-      await this.opts.store.completeTask({ taskId, result });
-    } catch (err) {
-      await this.opts.store.failTask({
+      await this.opts.store.awardTask({
         taskId,
-        reason: `winner ${award.winner.agent_id} failed /execute: ${(err as Error).message}`,
+        winnerAgentId: award.winner.agent_id,
+        auctionPriceUsd: award.auctionPriceUsd,
+        winningBidUsd: award.winningBidUsd,
       });
+
+      await this.opts.store.markExecuting(taskId);
+
+      try {
+        const result = await this.execute(taskId, award.winner.agent_id, spec);
+        await this.opts.store.completeTask({ taskId, result });
+        return;
+      } catch (err) {
+        failures.push(`winner ${award.winner.agent_id} failed /execute: ${(err as Error).message}`);
+        const failedIndex = remainingBids.findIndex(
+          (bid) => bid.agent_id === award.winner.agent_id,
+        );
+        if (failedIndex >= 0) remainingBids.splice(failedIndex, 1);
+        if (remainingBids.length <= 1) {
+          await this.opts.store.failTask({
+            taskId,
+            reason: `re-auction exhausted after execute failure: ${failures.join("; ")}`,
+          });
+          return;
+        }
+      }
     }
+
+    await this.opts.store.failTask({
+      taskId,
+      reason: `re-auction exhausted without an executable winner: ${failures.join("; ")}`,
+    });
   }
 
   // Sends POST /bid to every configured agent in parallel and waits with the

@@ -239,6 +239,28 @@ describe("awardTask", () => {
       }),
     ).rejects.toThrow(InvalidTransitionError);
   });
+
+  it("allows re-awarding a different winner after execution starts", async () => {
+    await store.awardTask({
+      taskId: TASK_ID,
+      winnerAgentId: "gcp-gemini",
+      auctionPriceUsd: 0.05,
+      winningBidUsd: 0.02,
+    });
+    await store.markExecuting(TASK_ID);
+
+    const record = await store.awardTask({
+      taskId: TASK_ID,
+      winnerAgentId: "aws-nova",
+      auctionPriceUsd: 0.04,
+      winningBidUsd: 0.03,
+    });
+
+    expect(record.status).toBe("awarded");
+    expect(record.winner_agent_id).toBe("aws-nova");
+    expect(record.auction_price_usd).toBe(0.04);
+    expect(record.winning_bid_usd).toBe(0.03);
+  });
 });
 
 describe("markExecuting / completeTask / failTask", () => {

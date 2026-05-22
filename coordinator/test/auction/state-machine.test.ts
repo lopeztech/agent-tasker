@@ -28,6 +28,10 @@ describe("VALID_TRANSITIONS", () => {
     expect(canTransition("executing", "completed")).toBe(true);
   });
 
+  it("allows re-auction from executing back to awarded", () => {
+    expect(canTransition("executing", "awarded")).toBe(true);
+  });
+
   it("rejects skipping states", () => {
     expect(canTransition("bidding", "executing")).toBe(false);
     expect(canTransition("bidding", "completed")).toBe(false);

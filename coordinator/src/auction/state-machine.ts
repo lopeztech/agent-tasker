@@ -1,13 +1,12 @@
 import type { TaskStatus } from "@agent-tasker/protocol";
 
 // Auction lifecycle per CLAUDE.md → Bidding protocol. Terminal states have no
-// outgoing transitions; re-auction on /execute failure (#53) is modeled as a
-// *new* task lifecycle that links back to the original via a parent reference,
-// not as a transition out of `failed`.
+// outgoing transitions. Re-auction on /execute failure re-awards the same task
+// attempt from `executing` back to `awarded`, excluding the failed winner.
 export const VALID_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   bidding: ["awarded", "failed"],
   awarded: ["executing", "failed"],
-  executing: ["completed", "failed"],
+  executing: ["awarded", "completed", "failed"],
   completed: [],
   failed: [],
 };
