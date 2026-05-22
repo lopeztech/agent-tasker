@@ -25,9 +25,9 @@ import type { AuctionRunner } from "./runner.js";
 //   #52). Slow agents are treated as `no_bid: internal_error`.
 // - Records every bid/no_bid via store.recordBidResponse with the supplied
 //   pricing snapshot.
-// - Picks the winner with lowest `bid_usd`. Full Vickrey (second-price)
-//   selection lands with #47; for now the auction_price IS the winning
-//   bid (degenerate Vickrey for two-or-fewer bidders).
+// - Picks the winner with lowest `bid_usd`; records the auction price as
+//   the second-lowest bid (Vickrey / second-price). With one bidder, the
+//   auction price falls back to that bidder's own bid.
 // - Awards, marks executing, POSTs to {winner.baseUrl}/execute, records
 //   the result, completes.
 // - Any unrecoverable failure → store.failTask. Re-auction on /execute
@@ -35,7 +35,6 @@ import type { AuctionRunner } from "./runner.js";
 //
 // What's still out of scope (separate issues):
 // - Adaptive bid timeout (#52)
-// - Real Vickrey second-price selection (#47)
 // - MAPE-based tie-breaking (#50, #51)
 // - Re-auction on /execute failure (#53)
 // - Score-weighted auction layer (#81)
@@ -117,25 +116,24 @@ export class HttpAuctionRunner implements AuctionRunner {
       return;
     }
 
-    const winner = pickLowestBid(realBids);
-    const auctionPriceUsd = pickAuctionPrice(realBids, winner);
+    const award = selectVickreyAward(realBids);
 
     await this.opts.store.awardTask({
       taskId,
-      winnerAgentId: winner.agent_id,
-      auctionPriceUsd,
-      winningBidUsd: winner.bid_usd,
+      winnerAgentId: award.winner.agent_id,
+      auctionPriceUsd: award.auctionPriceUsd,
+      winningBidUsd: award.winningBidUsd,
     });
 
     await this.opts.store.markExecuting(taskId);
 
     try {
-      const result = await this.execute(taskId, winner.agent_id, task.spec);
+      const result = await this.execute(taskId, award.winner.agent_id, task.spec);
       await this.opts.store.completeTask({ taskId, result });
     } catch (err) {
       await this.opts.store.failTask({
         taskId,
-        reason: `winner ${winner.agent_id} failed /execute: ${(err as Error).message}`,
+        reason: `winner ${award.winner.agent_id} failed /execute: ${(err as Error).message}`,
       });
     }
   }
@@ -238,16 +236,24 @@ function syntheticNoBid(taskId: TaskId, agentId: AgentId, reason: string): BidRe
   };
 }
 
-function pickLowestBid(bids: Bid[]): Bid {
-  // Defensive: bids is non-empty by caller contract.
-  return bids.reduce((min, b) => (b.bid_usd < min.bid_usd ? b : min));
+export interface VickreyAward {
+  winner: Bid;
+  winningBidUsd: number;
+  auctionPriceUsd: number;
 }
 
-function pickAuctionPrice(bids: Bid[], winner: Bid): number {
-  // Vickrey: price = second-lowest bid. With a single bidder, the winner's
-  // own bid is the price (degenerate Vickrey). Full implementation with
-  // tier filtering + tie-breaking comes via #47.
-  const others = bids.filter((b) => b !== winner).map((b) => b.bid_usd);
-  if (others.length === 0) return winner.bid_usd;
-  return Math.min(...others);
+export function selectVickreyAward(bids: readonly Bid[]): VickreyAward {
+  if (bids.length === 0) {
+    throw new Error("cannot select a Vickrey award without at least one bid");
+  }
+
+  const ranked = [...bids].sort((a, b) => a.bid_usd - b.bid_usd);
+  const winner = ranked[0]!;
+  const priceBid = ranked[1] ?? winner;
+
+  return {
+    winner,
+    winningBidUsd: winner.bid_usd,
+    auctionPriceUsd: priceBid.bid_usd,
+  };
 }
