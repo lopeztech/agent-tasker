@@ -4,7 +4,7 @@ import {
   type DocumentReference,
   type Transaction,
 } from "@google-cloud/firestore";
-import type { TaskId, TaskStatus } from "@agent-tasker/protocol";
+import { isNoBid, type TaskId, type TaskStatus } from "@agent-tasker/protocol";
 import {
   InvalidTransitionError,
   TaskAlreadyExistsError,
@@ -71,6 +71,9 @@ export class FirestoreLedgerStore implements LedgerStore {
         agent_id: input.response.agent_id,
         timestamp: nowIso(input.now),
         phase: "bid",
+        response_kind: isNoBid(input.response) ? "no_bid" : "bid",
+        no_bid_reason: isNoBid(input.response) ? input.response.reason : undefined,
+        mape_eligible: !isNoBid(input.response),
         response: input.response,
         pricing_snapshot: input.pricingSnapshot,
       };

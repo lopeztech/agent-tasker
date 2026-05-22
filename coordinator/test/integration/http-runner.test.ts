@@ -166,6 +166,11 @@ describe("HttpAuctionRunner", () => {
     // Nova's decline was still recorded
     const bids = await store.listBids(taskId);
     const novaRecord = bids.find((b) => b.agent_id === "aws-nova");
+    expect(novaRecord).toMatchObject({
+      response_kind: "no_bid",
+      no_bid_reason: "capability",
+      mape_eligible: false,
+    });
     expect(novaRecord?.response).toMatchObject({ status: "no_bid", reason: "capability" });
   });
 
@@ -266,6 +271,11 @@ describe("HttpAuctionRunner", () => {
 
     const bids = await store.listBids(taskId);
     const novaRecord = bids.find((b) => b.agent_id === "aws-nova");
+    expect(novaRecord).toMatchObject({
+      response_kind: "no_bid",
+      no_bid_reason: "internal_error",
+      mape_eligible: false,
+    });
     expect(novaRecord?.response).toMatchObject({ status: "no_bid", reason: "internal_error" });
   });
 

@@ -109,6 +109,9 @@ describe("recordBidResponse", () => {
     const bids = await store.listBids(TASK_ID);
     expect(bids).toHaveLength(1);
     expect(bids[0]?.phase).toBe("bid");
+    expect(bids[0]?.response_kind).toBe("bid");
+    expect(bids[0]?.mape_eligible).toBe(true);
+    expect(bids[0]?.no_bid_reason).toBeUndefined();
     expect(bids[0]?.response).toEqual(bid);
     expect(bids[0]?.pricing_snapshot).toEqual(PRICING);
   });
@@ -127,7 +130,16 @@ describe("recordBidResponse", () => {
     const bids = await store.listBids(TASK_ID);
     expect(bids).toHaveLength(2);
     const byAgent = Object.fromEntries(bids.map((b) => [b.agent_id, b]));
+    expect(byAgent["gcp-gemini"]).toMatchObject({
+      response_kind: "bid",
+      mape_eligible: true,
+    });
     expect(byAgent["gcp-gemini"]?.response).toMatchObject({ bid_usd: 0.02 });
+    expect(byAgent["aws-nova"]).toMatchObject({
+      response_kind: "no_bid",
+      no_bid_reason: "capability",
+      mape_eligible: false,
+    });
     expect(byAgent["aws-nova"]?.response).toMatchObject({
       status: "no_bid",
       reason: "capability",
