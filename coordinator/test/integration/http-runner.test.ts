@@ -6,6 +6,8 @@ import type {
   JwtPhase,
   PricingEntry,
   TaskId,
+  TaskSpec,
+  Tier,
 } from "@agent-tasker/protocol";
 import { InMemoryLedgerStore } from "../../src/ledger/in-memory-store.js";
 import {
@@ -35,11 +37,11 @@ const stubSigner: TaskTokenSigner = {
   },
 };
 
-function bidFor(agentId: AgentId, bidUsd: number, taskId: string): Bid {
+function bidFor(agentId: AgentId, bidUsd: number, taskId: string, tier: Tier = "frontier"): Bid {
   return {
     task_id: taskId,
     agent_id: agentId,
-    tier: "frontier",
+    tier,
     model_family: agentId.startsWith("gcp") ? "gemini" : agentId.startsWith("aws") ? "nova" : "gpt",
     model_id: "stub-model",
     est_input_tokens: 4000,
@@ -69,10 +71,11 @@ async function startAuction(opts: {
   taskId: TaskId;
   endpoints: AgentEndpoint[];
   bidTimeoutMs?: number;
+  spec?: TaskSpec;
 }): Promise<HttpAuctionRunner> {
   await store.createTask({
     taskId: opts.taskId,
-    spec: { prompt: "summarize the transcript" },
+    spec: opts.spec ?? { prompt: "summarize the transcript" },
   });
   const runner = new HttpAuctionRunner({
     store,
@@ -164,6 +167,43 @@ describe("HttpAuctionRunner", () => {
     const bids = await store.listBids(taskId);
     const novaRecord = bids.find((b) => b.agent_id === "aws-nova");
     expect(novaRecord?.response).toMatchObject({ status: "no_bid", reason: "capability" });
+  });
+
+  it("applies min_tier before winner selection", async () => {
+    const taskId = "task-min-tier-frontier";
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (req) => bidFor("gcp-gemini", 0.01, req.task_id, "small"),
+    });
+    const nova = await startFakeAgent({
+      agentId: "aws-nova",
+      onBid: (req) => bidFor("aws-nova", 0.04, req.task_id, "frontier"),
+      onExecute: (req) => ({
+        task_id: req.task_id,
+        agent_id: "aws-nova",
+        output: "nova did it",
+        actual_usage: { input_tokens: 3900, output_tokens: 900 },
+      }),
+    });
+    agents.push(gemini, nova);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        { agentId: "aws-nova", baseUrl: nova.url },
+      ],
+      spec: { prompt: "summarize the transcript", min_tier: "frontier" },
+    });
+
+    const task = await store.getTask(taskId);
+    expect(task?.status).toBe("completed");
+    expect(task?.winner_agent_id).toBe("aws-nova");
+    expect(task?.winning_bid_usd).toBe(0.04);
+    expect(task?.auction_price_usd).toBe(0.04);
+
+    const bids = await store.listBids(taskId);
+    expect(bids.map((bid) => bid.agent_id).sort()).toEqual(["aws-nova", "gcp-gemini"]);
   });
 
   it("all agents decline → task fails with reason listing decline codes", async () => {

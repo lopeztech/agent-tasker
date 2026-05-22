@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { AgentId, Bid } from "@agent-tasker/protocol";
-import { selectVickreyAward } from "../../src/auction/http-runner.js";
+import type { AgentId, Bid, Tier } from "@agent-tasker/protocol";
+import { filterBidsByMinTier, selectVickreyAward } from "../../src/auction/http-runner.js";
 
-function bidFor(agentId: AgentId, bidUsd: number): Bid {
+function bidFor(agentId: AgentId, bidUsd: number, tier: Tier = "frontier"): Bid {
   return {
     task_id: "task-vickrey",
     agent_id: agentId,
-    tier: "frontier",
+    tier,
     model_family: agentId.startsWith("gcp") ? "gemini" : agentId.startsWith("aws") ? "nova" : "gpt",
     model_id: "stub-model",
     est_input_tokens: 4000,
@@ -18,6 +18,36 @@ function bidFor(agentId: AgentId, bidUsd: number): Bid {
     signature: "stub",
   };
 }
+
+describe("filterBidsByMinTier", () => {
+  it("keeps every bid when no minimum tier is requested", () => {
+    const bids = [
+      bidFor("gcp-gemini", 0.01, "small"),
+      bidFor("aws-nova", 0.02, "medium"),
+      bidFor("azure-gpt", 0.03, "frontier"),
+    ];
+
+    expect(filterBidsByMinTier(bids, undefined).map((bid) => bid.agent_id)).toEqual([
+      "gcp-gemini",
+      "aws-nova",
+      "azure-gpt",
+    ]);
+  });
+
+  it("excludes bids below the requested minimum tier before scoring", () => {
+    const bids = [
+      bidFor("gcp-gemini", 0.01, "small"),
+      bidFor("aws-nova", 0.02, "medium"),
+      bidFor("azure-gpt", 0.03, "frontier"),
+    ];
+
+    expect(filterBidsByMinTier(bids, "medium").map((bid) => bid.agent_id)).toEqual([
+      "aws-nova",
+      "azure-gpt",
+    ]);
+    expect(filterBidsByMinTier(bids, "frontier").map((bid) => bid.agent_id)).toEqual(["azure-gpt"]);
+  });
+});
 
 describe("selectVickreyAward", () => {
   it("selects the lowest bid and prices at the second-lowest bid", () => {
