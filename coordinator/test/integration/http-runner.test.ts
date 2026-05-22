@@ -11,6 +11,7 @@ import type {
 } from "@agent-tasker/protocol";
 import { InMemoryLedgerStore } from "../../src/ledger/in-memory-store.js";
 import {
+  type AgentAccuracyLookup,
   HttpAuctionRunner,
   type AgentEndpoint,
   type TaskTokenSigner,
@@ -70,6 +71,7 @@ afterEach(async () => {
 async function startAuction(opts: {
   taskId: TaskId;
   endpoints: AgentEndpoint[];
+  accuracyByAgent?: AgentAccuracyLookup;
   bidTimeoutMs?: number;
   spec?: TaskSpec;
 }): Promise<HttpAuctionRunner> {
@@ -82,6 +84,7 @@ async function startAuction(opts: {
     agents: opts.endpoints,
     tokenSigner: stubSigner,
     pricingSnapshot: PRICING_SNAPSHOT,
+    ...(opts.accuracyByAgent !== undefined ? { accuracyByAgent: opts.accuracyByAgent } : {}),
     ...(opts.bidTimeoutMs !== undefined ? { bidTimeoutMs: opts.bidTimeoutMs } : {}),
   });
   runner.start(opts.taskId);
@@ -209,6 +212,43 @@ describe("HttpAuctionRunner", () => {
 
     const bids = await store.listBids(taskId);
     expect(bids.map((bid) => bid.agent_id).sort()).toEqual(["aws-nova", "gcp-gemini"]);
+  });
+
+  it("breaks tied lowest bids by historical MAPE", async () => {
+    const taskId = "task-tied-mape";
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (req) => bidFor("gcp-gemini", 0.02, req.task_id),
+    });
+    const nova = await startFakeAgent({
+      agentId: "aws-nova",
+      onBid: (req) => bidFor("aws-nova", 0.02, req.task_id),
+      onExecute: (req) => ({
+        task_id: req.task_id,
+        agent_id: "aws-nova",
+        output: "nova did it",
+        actual_usage: { input_tokens: 3900, output_tokens: 900 },
+      }),
+    });
+    agents.push(gemini, nova);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        { agentId: "aws-nova", baseUrl: nova.url },
+      ],
+      accuracyByAgent: {
+        "gcp-gemini": { mape: 0.2 },
+        "aws-nova": { mape: 0.05 },
+      },
+    });
+
+    const task = await store.getTask(taskId);
+    expect(task?.status).toBe("completed");
+    expect(task?.winner_agent_id).toBe("aws-nova");
+    expect(task?.winning_bid_usd).toBe(0.02);
+    expect(task?.auction_price_usd).toBe(0.02);
   });
 
   it("all agents decline → task fails with reason listing decline codes", async () => {

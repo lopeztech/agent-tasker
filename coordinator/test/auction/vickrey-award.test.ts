@@ -70,6 +70,31 @@ describe("selectVickreyAward", () => {
     expect(award.auctionPriceUsd).toBe(0.02);
   });
 
+  it("breaks tied bids by lowest historical MAPE", () => {
+    const award = selectVickreyAward(
+      [bidFor("gcp-gemini", 0.02), bidFor("aws-nova", 0.02), bidFor("azure-gpt", 0.04)],
+      {
+        "gcp-gemini": { mape: 0.18 },
+        "aws-nova": { mape: 0.08 },
+      },
+    );
+
+    expect(award.winner.agent_id).toBe("aws-nova");
+    expect(award.winningBidUsd).toBe(0.02);
+    expect(award.auctionPriceUsd).toBe(0.02);
+  });
+
+  it("uses historical MAPE only after bid_usd ties", () => {
+    const award = selectVickreyAward([bidFor("gcp-gemini", 0.01), bidFor("aws-nova", 0.02)], {
+      "gcp-gemini": { mape: 0.5 },
+      "aws-nova": { mape: 0.01 },
+    });
+
+    expect(award.winner.agent_id).toBe("gcp-gemini");
+    expect(award.winningBidUsd).toBe(0.01);
+    expect(award.auctionPriceUsd).toBe(0.02);
+  });
+
   it("does not mutate caller-owned bid ordering", () => {
     const bids = [
       bidFor("azure-gpt", 0.04),
