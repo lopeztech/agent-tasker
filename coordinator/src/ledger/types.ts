@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   AgentIdSchema,
   BidResponseSchema,
+  NoBidReasonSchema,
   PricingEntrySchema,
   ResultSchema,
   TaskIdSchema,
@@ -43,11 +44,17 @@ export type TaskRecord = z.infer<typeof TaskRecordSchema>;
 //
 // `pricing_snapshot` captures the prices the bidder used so MAPE replay
 // remains reproducible even after the pricing collection rolls forward.
+// `response_kind` / `no_bid_reason` / `mape_eligible` intentionally
+// denormalize the union response so decline-rate queries and future MAPE
+// rollups do not have to inspect nested response shapes.
 export const BidRecordSchema = z.object({
   task_id: TaskIdSchema,
   agent_id: AgentIdSchema,
   timestamp: Iso8601,
   phase: z.literal("bid"),
+  response_kind: z.enum(["bid", "no_bid"]),
+  no_bid_reason: NoBidReasonSchema.optional(),
+  mape_eligible: z.boolean(),
   response: BidResponseSchema,
   pricing_snapshot: z.array(PricingEntrySchema),
 });

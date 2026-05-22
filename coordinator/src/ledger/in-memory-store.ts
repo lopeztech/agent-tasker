@@ -1,4 +1,4 @@
-import type { TaskId } from "@agent-tasker/protocol";
+import { isNoBid, type TaskId } from "@agent-tasker/protocol";
 import {
   InvalidTransitionError,
   TaskAlreadyExistsError,
@@ -57,6 +57,9 @@ export class InMemoryLedgerStore implements LedgerStore {
       agent_id: input.response.agent_id,
       timestamp: nowIso(input.now),
       phase: "bid",
+      response_kind: isNoBid(input.response) ? "no_bid" : "bid",
+      no_bid_reason: isNoBid(input.response) ? input.response.reason : undefined,
+      mape_eligible: !isNoBid(input.response),
       response: input.response,
       pricing_snapshot: input.pricingSnapshot,
     };
