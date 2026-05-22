@@ -74,8 +74,8 @@ describe("selectVickreyAward", () => {
     const award = selectVickreyAward(
       [bidFor("gcp-gemini", 0.02), bidFor("aws-nova", 0.02), bidFor("azure-gpt", 0.04)],
       {
-        "gcp-gemini": { mape: 0.18 },
-        "aws-nova": { mape: 0.08 },
+        "gcp-gemini": { mape: 0.18, settledTaskCount: 10 },
+        "aws-nova": { mape: 0.08, settledTaskCount: 10 },
       },
     );
 
@@ -86,12 +86,42 @@ describe("selectVickreyAward", () => {
 
   it("uses historical MAPE only after bid_usd ties", () => {
     const award = selectVickreyAward([bidFor("gcp-gemini", 0.01), bidFor("aws-nova", 0.02)], {
-      "gcp-gemini": { mape: 0.5 },
-      "aws-nova": { mape: 0.01 },
+      "gcp-gemini": { mape: 0.5, settledTaskCount: 10 },
+      "aws-nova": { mape: 0.01, settledTaskCount: 10 },
     });
 
     expect(award.winner.agent_id).toBe("gcp-gemini");
     expect(award.winningBidUsd).toBe(0.01);
+    expect(award.auctionPriceUsd).toBe(0.02);
+  });
+
+  it("falls back to random selection among tied cold-start agents", () => {
+    const award = selectVickreyAward(
+      [bidFor("gcp-gemini", 0.02), bidFor("aws-nova", 0.02), bidFor("azure-gpt", 0.04)],
+      {
+        "gcp-gemini": { mape: 0.18, settledTaskCount: 9 },
+        "aws-nova": { mape: 0.08, settledTaskCount: 9 },
+      },
+      () => 0.75,
+    );
+
+    expect(award.winner.agent_id).toBe("aws-nova");
+    expect(award.winningBidUsd).toBe(0.02);
+    expect(award.auctionPriceUsd).toBe(0.02);
+  });
+
+  it("prefers tied cold-start agents over mature MAPE candidates", () => {
+    const award = selectVickreyAward(
+      [bidFor("gcp-gemini", 0.02), bidFor("aws-nova", 0.02), bidFor("azure-gpt", 0.04)],
+      {
+        "gcp-gemini": { mape: 0.18, settledTaskCount: 9 },
+        "aws-nova": { mape: 0.08, settledTaskCount: 10 },
+      },
+      () => 0,
+    );
+
+    expect(award.winner.agent_id).toBe("gcp-gemini");
+    expect(award.winningBidUsd).toBe(0.02);
     expect(award.auctionPriceUsd).toBe(0.02);
   });
 

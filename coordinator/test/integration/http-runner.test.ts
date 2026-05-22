@@ -72,6 +72,7 @@ async function startAuction(opts: {
   taskId: TaskId;
   endpoints: AgentEndpoint[];
   accuracyByAgent?: AgentAccuracyLookup;
+  tieBreakRandom?: () => number;
   bidTimeoutMs?: number;
   spec?: TaskSpec;
 }): Promise<HttpAuctionRunner> {
@@ -85,6 +86,7 @@ async function startAuction(opts: {
     tokenSigner: stubSigner,
     pricingSnapshot: PRICING_SNAPSHOT,
     ...(opts.accuracyByAgent !== undefined ? { accuracyByAgent: opts.accuracyByAgent } : {}),
+    ...(opts.tieBreakRandom !== undefined ? { tieBreakRandom: opts.tieBreakRandom } : {}),
     ...(opts.bidTimeoutMs !== undefined ? { bidTimeoutMs: opts.bidTimeoutMs } : {}),
   });
   runner.start(opts.taskId);
@@ -239,9 +241,47 @@ describe("HttpAuctionRunner", () => {
         { agentId: "aws-nova", baseUrl: nova.url },
       ],
       accuracyByAgent: {
-        "gcp-gemini": { mape: 0.2 },
-        "aws-nova": { mape: 0.05 },
+        "gcp-gemini": { mape: 0.2, settledTaskCount: 10 },
+        "aws-nova": { mape: 0.05, settledTaskCount: 10 },
       },
+    });
+
+    const task = await store.getTask(taskId);
+    expect(task?.status).toBe("completed");
+    expect(task?.winner_agent_id).toBe("aws-nova");
+    expect(task?.winning_bid_usd).toBe(0.02);
+    expect(task?.auction_price_usd).toBe(0.02);
+  });
+
+  it("uses random cold-start fallback when tied agents have too few settled tasks", async () => {
+    const taskId = "task-tied-cold-start";
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (req) => bidFor("gcp-gemini", 0.02, req.task_id),
+    });
+    const nova = await startFakeAgent({
+      agentId: "aws-nova",
+      onBid: (req) => bidFor("aws-nova", 0.02, req.task_id),
+      onExecute: (req) => ({
+        task_id: req.task_id,
+        agent_id: "aws-nova",
+        output: "nova did it",
+        actual_usage: { input_tokens: 3900, output_tokens: 900 },
+      }),
+    });
+    agents.push(gemini, nova);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        { agentId: "aws-nova", baseUrl: nova.url },
+      ],
+      accuracyByAgent: {
+        "gcp-gemini": { mape: 0.2, settledTaskCount: 9 },
+        "aws-nova": { mape: 0.05, settledTaskCount: 9 },
+      },
+      tieBreakRandom: () => 0.75,
     });
 
     const task = await store.getTask(taskId);
