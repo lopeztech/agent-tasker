@@ -8,7 +8,9 @@ import {
   type PricingEntry,
   type TaskId,
   type TaskSpec,
+  type Tier,
   isNoBid,
+  meetsMinTier,
 } from "@agent-tasker/protocol";
 import type { LedgerStore } from "../ledger/store.js";
 import type { AuctionRunner } from "./runner.js";
@@ -25,6 +27,7 @@ import type { AuctionRunner } from "./runner.js";
 //   #52). Slow agents are treated as `no_bid: internal_error`.
 // - Records every bid/no_bid via store.recordBidResponse with the supplied
 //   pricing snapshot.
+// - Applies the task's optional `min_tier` filter before winner selection.
 // - Picks the winner with lowest `bid_usd`; records the auction price as
 //   the second-lowest bid (Vickrey / second-price). With one bidder, the
 //   auction price falls back to that bidder's own bid.
@@ -116,7 +119,16 @@ export class HttpAuctionRunner implements AuctionRunner {
       return;
     }
 
-    const award = selectVickreyAward(realBids);
+    const eligibleBids = filterBidsByMinTier(realBids, task.spec.min_tier);
+    if (eligibleBids.length === 0) {
+      await this.opts.store.failTask({
+        taskId,
+        reason: `no bids met min_tier ${task.spec.min_tier ?? "none"}`,
+      });
+      return;
+    }
+
+    const award = selectVickreyAward(eligibleBids);
 
     await this.opts.store.awardTask({
       taskId,
@@ -240,6 +252,10 @@ export interface VickreyAward {
   winner: Bid;
   winningBidUsd: number;
   auctionPriceUsd: number;
+}
+
+export function filterBidsByMinTier(bids: readonly Bid[], minTier: Tier | undefined): Bid[] {
+  return bids.filter((bid) => meetsMinTier(bid.tier, minTier));
 }
 
 export function selectVickreyAward(bids: readonly Bid[]): VickreyAward {
