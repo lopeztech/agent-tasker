@@ -38,7 +38,6 @@ import type { AuctionRunner } from "./runner.js";
 //
 // What's still out of scope (separate issues):
 // - Adaptive bid timeout (#52)
-// - MAPE-based tie-breaking (#50, #51)
 // - Re-auction on /execute failure (#53)
 // - Score-weighted auction layer (#81)
 
@@ -57,6 +56,7 @@ export interface HttpAuctionRunnerOptions {
   tokenSigner: TaskTokenSigner;
   pricingSnapshot: PricingEntry[];
   accuracyByAgent?: AgentAccuracyLookup;
+  tieBreakRandom?: RandomSource;
   bidTimeoutMs?: number;
   executeTimeoutMs?: number;
   // Override for tests; defaults to the global `fetch` available in Node 22+.
@@ -129,7 +129,11 @@ export class HttpAuctionRunner implements AuctionRunner {
       return;
     }
 
-    const award = selectVickreyAward(eligibleBids, this.opts.accuracyByAgent);
+    const award = selectVickreyAward(
+      eligibleBids,
+      this.opts.accuracyByAgent,
+      this.opts.tieBreakRandom,
+    );
 
     await this.opts.store.awardTask({
       taskId,
@@ -258,9 +262,13 @@ export interface VickreyAward {
 export interface AgentAccuracy {
   // Mean absolute percentage error, lower is better.
   mape: number;
+  settledTaskCount: number;
 }
 
 export type AgentAccuracyLookup = Partial<Record<AgentId, AgentAccuracy>>;
+export type RandomSource = () => number;
+
+export const MIN_SETTLED_TASKS_FOR_MAPE_TIE_BREAK = 10;
 
 export function filterBidsByMinTier(bids: readonly Bid[], minTier: Tier | undefined): Bid[] {
   return bids.filter((bid) => meetsMinTier(bid.tier, minTier));
@@ -269,16 +277,20 @@ export function filterBidsByMinTier(bids: readonly Bid[], minTier: Tier | undefi
 export function selectVickreyAward(
   bids: readonly Bid[],
   accuracyByAgent: AgentAccuracyLookup = {},
+  random: RandomSource = Math.random,
 ): VickreyAward {
   if (bids.length === 0) {
     throw new Error("cannot select a Vickrey award without at least one bid");
   }
 
-  const ranked = [...bids].sort(
-    (a, b) => a.bid_usd - b.bid_usd || compareHistoricalMape(a, b, accuracyByAgent),
-  );
-  const winner = ranked[0]!;
-  const priceBid = ranked[1] ?? winner;
+  const rankedByBid = [...bids].sort((a, b) => a.bid_usd - b.bid_usd);
+  const lowestBidUsd = rankedByBid[0]!.bid_usd;
+  const tiedLowestBids = rankedByBid.filter((bid) => bid.bid_usd === lowestBidUsd);
+  const winner =
+    tiedLowestBids.length === 1
+      ? tiedLowestBids[0]!
+      : pickTieWinner(tiedLowestBids, accuracyByAgent, random);
+  const priceBid = rankedByBid.filter((bid) => bid !== winner)[0] ?? winner;
 
   return {
     winner,
@@ -287,12 +299,30 @@ export function selectVickreyAward(
   };
 }
 
-function compareHistoricalMape(a: Bid, b: Bid, accuracyByAgent: AgentAccuracyLookup): number {
-  const aMape = accuracyByAgent[a.agent_id]?.mape;
-  const bMape = accuracyByAgent[b.agent_id]?.mape;
+function pickTieWinner(
+  tiedBids: readonly Bid[],
+  accuracyByAgent: AgentAccuracyLookup,
+  random: RandomSource,
+): Bid {
+  const coldStartBids = tiedBids.filter(
+    (bid) => !hasEnoughSettledTasks(accuracyByAgent[bid.agent_id]),
+  );
+  if (coldStartBids.length > 0) {
+    return pickRandom(coldStartBids, random);
+  }
 
-  if (aMape === undefined && bMape === undefined) return 0;
-  if (aMape === undefined) return 1;
-  if (bMape === undefined) return -1;
-  return aMape - bMape;
+  return [...tiedBids].sort(
+    (a, b) => accuracyByAgent[a.agent_id]!.mape - accuracyByAgent[b.agent_id]!.mape,
+  )[0]!;
+}
+
+function hasEnoughSettledTasks(accuracy: AgentAccuracy | undefined): boolean {
+  return (
+    accuracy !== undefined && accuracy.settledTaskCount >= MIN_SETTLED_TASKS_FOR_MAPE_TIE_BREAK
+  );
+}
+
+function pickRandom<T>(items: readonly T[], random: RandomSource): T {
+  const index = Math.min(Math.floor(random() * items.length), items.length - 1);
+  return items[index]!;
 }
