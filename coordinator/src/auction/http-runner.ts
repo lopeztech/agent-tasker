@@ -57,6 +57,8 @@ export interface HttpAuctionRunnerOptions {
   pricingSnapshot: PricingEntry[];
   accuracyByAgent?: AgentAccuracyLookup;
   tieBreakRandom?: RandomSource;
+  bidInitialWaitMs?: number;
+  bidExtensionMs?: number;
   bidTimeoutMs?: number;
   executeTimeoutMs?: number;
   // Override for tests; defaults to the global `fetch` available in Node 22+.
@@ -68,6 +70,8 @@ export interface HttpAuctionRunnerOptions {
 }
 
 const DEFAULT_BID_TIMEOUT_MS = 5_000;
+const DEFAULT_BID_INITIAL_WAIT_MS = 2_000;
+const DEFAULT_BID_EXTENSION_MS = 1_000;
 const DEFAULT_EXECUTE_TIMEOUT_MS = 60_000;
 
 export class HttpAuctionRunner implements AuctionRunner {
@@ -155,38 +159,32 @@ export class HttpAuctionRunner implements AuctionRunner {
     }
   }
 
-  // Sends POST /bid to every configured agent in parallel and returns one
-  // BidResponse per agent. Agents that error / time out / return junk are
-  // translated to a synthetic `no_bid: internal_error` so the ledger has a
-  // record per agent.
+  // Sends POST /bid to every configured agent in parallel and waits with the
+  // adaptive window from AGENTS.md: 2s initial wait, +1s while responses keep
+  // landing, capped at 5s total wall clock. Agents still pending at the cap
+  // are translated to synthetic `no_bid: internal_error` so the ledger has a
+  // record per configured participant.
   private async gatherBids(taskId: TaskId, spec: TaskSpec): Promise<BidResponse[]> {
-    const timeoutMs = this.opts.bidTimeoutMs ?? DEFAULT_BID_TIMEOUT_MS;
     const fetchImpl = this.opts.fetch ?? fetch;
     const body = JSON.stringify({ task_id: taskId, spec });
-    return Promise.all(
-      this.opts.agents.map(async (agent): Promise<BidResponse> => {
+    const pending = this.opts.agents.map((agent) => {
+      const controller = new AbortController();
+      const promise = (async (): Promise<BidResponse> => {
         try {
           const token = await this.opts.tokenSigner.sign({
             agentId: agent.agentId,
             taskId,
             phase: "bid",
           });
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), timeoutMs);
-          let res: Response;
-          try {
-            res = await fetchImpl(`${agent.baseUrl}/bid`, {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                authorization: `Bearer ${token}`,
-              },
-              body,
-              signal: controller.signal,
-            });
-          } finally {
-            clearTimeout(timer);
-          }
+          const res = await fetchImpl(`${agent.baseUrl}/bid`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${token}`,
+            },
+            body,
+            signal: controller.signal,
+          });
           if (!res.ok) {
             return syntheticNoBid(taskId, agent.agentId, `agent returned ${res.status}`);
           }
@@ -205,8 +203,25 @@ export class HttpAuctionRunner implements AuctionRunner {
           const reason = err instanceof Error && err.name === "AbortError" ? "timeout" : "error";
           return syntheticNoBid(taskId, agent.agentId, reason);
         }
-      }),
-    );
+      })();
+      return {
+        agentId: agent.agentId,
+        abort: () => controller.abort(),
+        promise,
+      };
+    });
+
+    try {
+      return await collectBidResponsesAdaptive({
+        taskId,
+        pending,
+        totalTimeoutMs: this.opts.bidTimeoutMs ?? DEFAULT_BID_TIMEOUT_MS,
+        initialWaitMs: this.opts.bidInitialWaitMs ?? DEFAULT_BID_INITIAL_WAIT_MS,
+        extensionMs: this.opts.bidExtensionMs ?? DEFAULT_BID_EXTENSION_MS,
+      });
+    } finally {
+      for (const entry of pending) entry.abort();
+    }
   }
 
   private async execute(taskId: TaskId, agentId: AgentId, spec: TaskSpec) {
@@ -237,6 +252,85 @@ export class HttpAuctionRunner implements AuctionRunner {
     const body = (await res.json()) as unknown;
     return ResultSchema.parse(body);
   }
+}
+
+export interface PendingBidResponse {
+  agentId: AgentId;
+  promise: Promise<BidResponse>;
+  abort?: () => void;
+}
+
+export interface AdaptiveBidCollectionInput {
+  taskId: TaskId;
+  pending: PendingBidResponse[];
+  totalTimeoutMs: number;
+  initialWaitMs: number;
+  extensionMs: number;
+  wait?: (ms: number) => Promise<void>;
+}
+
+export async function collectBidResponsesAdaptive({
+  taskId,
+  pending,
+  totalTimeoutMs,
+  initialWaitMs,
+  extensionMs,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}: AdaptiveBidCollectionInput): Promise<BidResponse[]> {
+  const responses = new Map<AgentId, BidResponse>();
+  const unresolved = new Set(pending.map((entry) => entry.agentId));
+  const allSettled = Promise.allSettled(pending.map((entry) => entry.promise));
+
+  for (const entry of pending) {
+    entry.promise.then(
+      (response) => {
+        if (!unresolved.has(entry.agentId)) return;
+        unresolved.delete(entry.agentId);
+        responses.set(entry.agentId, response);
+      },
+      () => {
+        if (!unresolved.has(entry.agentId)) return;
+        unresolved.delete(entry.agentId);
+        responses.set(entry.agentId, syntheticNoBid(taskId, entry.agentId, "bid promise rejected"));
+      },
+    );
+  }
+
+  const start = Date.now();
+  let windowMs = Math.min(initialWaitMs, totalTimeoutMs);
+
+  while (unresolved.size > 0 && Date.now() - start < totalTimeoutMs && windowMs > 0) {
+    const responseCountBeforeWindow = responses.size;
+    await Promise.race([wait(windowMs), allSettled]);
+    await Promise.resolve();
+
+    const landedThisWindow = responses.size > responseCountBeforeWindow;
+    if (!shouldExtendBidWindow(responses, landedThisWindow, unresolved.size)) break;
+
+    const elapsed = Date.now() - start;
+    windowMs = Math.min(extensionMs, totalTimeoutMs - elapsed);
+  }
+
+  for (const entry of pending) {
+    if (!responses.has(entry.agentId)) {
+      unresolved.delete(entry.agentId);
+      entry.abort?.();
+      responses.set(entry.agentId, syntheticNoBid(taskId, entry.agentId, "adaptive timeout"));
+    }
+  }
+
+  return pending.map((entry) => responses.get(entry.agentId)!);
+}
+
+function shouldExtendBidWindow(
+  responses: ReadonlyMap<AgentId, BidResponse>,
+  landedThisWindow: boolean,
+  unresolvedCount: number,
+): boolean {
+  const realBidCount = Array.from(responses.values()).filter(
+    (response) => !isNoBid(response),
+  ).length;
+  return unresolvedCount > 0 && realBidCount >= 2 && landedThisWindow;
 }
 
 function syntheticNoBid(taskId: TaskId, agentId: AgentId, reason: string): BidResponse {
