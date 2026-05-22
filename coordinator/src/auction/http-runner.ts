@@ -56,6 +56,7 @@ export interface HttpAuctionRunnerOptions {
   agents: AgentEndpoint[];
   tokenSigner: TaskTokenSigner;
   pricingSnapshot: PricingEntry[];
+  accuracyByAgent?: AgentAccuracyLookup;
   bidTimeoutMs?: number;
   executeTimeoutMs?: number;
   // Override for tests; defaults to the global `fetch` available in Node 22+.
@@ -128,7 +129,7 @@ export class HttpAuctionRunner implements AuctionRunner {
       return;
     }
 
-    const award = selectVickreyAward(eligibleBids);
+    const award = selectVickreyAward(eligibleBids, this.opts.accuracyByAgent);
 
     await this.opts.store.awardTask({
       taskId,
@@ -254,16 +255,28 @@ export interface VickreyAward {
   auctionPriceUsd: number;
 }
 
+export interface AgentAccuracy {
+  // Mean absolute percentage error, lower is better.
+  mape: number;
+}
+
+export type AgentAccuracyLookup = Partial<Record<AgentId, AgentAccuracy>>;
+
 export function filterBidsByMinTier(bids: readonly Bid[], minTier: Tier | undefined): Bid[] {
   return bids.filter((bid) => meetsMinTier(bid.tier, minTier));
 }
 
-export function selectVickreyAward(bids: readonly Bid[]): VickreyAward {
+export function selectVickreyAward(
+  bids: readonly Bid[],
+  accuracyByAgent: AgentAccuracyLookup = {},
+): VickreyAward {
   if (bids.length === 0) {
     throw new Error("cannot select a Vickrey award without at least one bid");
   }
 
-  const ranked = [...bids].sort((a, b) => a.bid_usd - b.bid_usd);
+  const ranked = [...bids].sort(
+    (a, b) => a.bid_usd - b.bid_usd || compareHistoricalMape(a, b, accuracyByAgent),
+  );
   const winner = ranked[0]!;
   const priceBid = ranked[1] ?? winner;
 
@@ -272,4 +285,14 @@ export function selectVickreyAward(bids: readonly Bid[]): VickreyAward {
     winningBidUsd: winner.bid_usd,
     auctionPriceUsd: priceBid.bid_usd,
   };
+}
+
+function compareHistoricalMape(a: Bid, b: Bid, accuracyByAgent: AgentAccuracyLookup): number {
+  const aMape = accuracyByAgent[a.agent_id]?.mape;
+  const bMape = accuracyByAgent[b.agent_id]?.mape;
+
+  if (aMape === undefined && bMape === undefined) return 0;
+  if (aMape === undefined) return 1;
+  if (bMape === undefined) return -1;
+  return aMape - bMape;
 }
