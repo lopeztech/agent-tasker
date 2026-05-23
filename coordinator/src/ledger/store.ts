@@ -38,9 +38,9 @@ export interface LedgerStore {
 
   listBids(taskId: TaskId): Promise<BidRecord[]>;
 
-  // Transitions bidding → awarded. Idempotent only if the *same* winner +
-  // pricing is reasserted; throws InvalidTransitionError if status has
-  // already moved past `awarded` (i.e. someone else has already executed).
+  // Transitions bidding → awarded. Re-auction may also transition
+  // executing → awarded with a different winner after excluding a failed
+  // executor. Idempotent only if the *same* winner + pricing is reasserted.
   awardTask(input: AwardTaskInput): Promise<TaskRecord>;
 
   // Transitions awarded → executing. Idempotent if already executing.
