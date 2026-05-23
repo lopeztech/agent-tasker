@@ -6,12 +6,16 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
     "@agent-tasker/agent": "workspace:*",
-    "@agent-tasker/protocol": "workspace:*"
+    "@agent-tasker/protocol": "workspace:*",
+    "@hono/node-server": "^2.0.3",
+    "hono": "^4.12.21",
+    "jose": "^6.2.3"
   }
 }
