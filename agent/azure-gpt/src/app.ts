@@ -1,10 +1,15 @@
 import { Hono } from "hono";
+import type { PricingEntry } from "@agent-tasker/protocol";
 import { AnnounceRequestSchema, ExecuteRequestSchema } from "@agent-tasker/protocol";
 import { getTokenClaims, requireTaskToken, type TaskTokenVerifier } from "@agent-tasker/agent";
+import { handleBid } from "./bid/handler.js";
+import type { BidEstimator } from "./bid/estimator.js";
 import { AGENT_ID } from "./index.js";
 
 export interface CreateAppOptions {
   verifier: TaskTokenVerifier;
+  estimator: BidEstimator;
+  pricing: PricingEntry;
 }
 
 export function createApp(opts: CreateAppOptions) {
@@ -27,12 +32,11 @@ export function createApp(opts: CreateAppOptions) {
       );
     }
 
-    return c.json({
-      task_id: parsed.data.task_id,
-      agent_id: AGENT_ID,
-      status: "no_bid",
-      reason: "capability",
+    const result = await handleBid(parsed.data, {
+      estimator: opts.estimator,
+      pricing: opts.pricing,
     });
+    return c.json(result);
   });
 
   app.post("/execute", requireTaskToken(opts.verifier, "execute"), async (c) => {
