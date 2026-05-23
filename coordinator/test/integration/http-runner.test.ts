@@ -426,4 +426,53 @@ describe("HttpAuctionRunner", () => {
     expect(nova.executeCalls).toBe(1);
     expect(azure.executeCalls).toBe(0);
   });
+
+  it("treats execution overrun as failure and re-auctions", async () => {
+    const taskId = "task-overrun-reauction";
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (req) => bidFor("gcp-gemini", 0.001, req.task_id),
+      onExecute: (req) => ({
+        task_id: req.task_id,
+        agent_id: "gcp-gemini",
+        output: "too expensive",
+        actual_usage: { input_tokens: 20_000_000, output_tokens: 0 },
+      }),
+    });
+    const nova = await startFakeAgent({
+      agentId: "aws-nova",
+      onBid: (req) => bidFor("aws-nova", 0.02, req.task_id),
+      onExecute: (req) => ({
+        task_id: req.task_id,
+        agent_id: "aws-nova",
+        output: "nova stayed in budget",
+        actual_usage: { input_tokens: 4000, output_tokens: 1000 },
+      }),
+    });
+    const azure = await startFakeAgent({
+      agentId: "azure-gpt",
+      onBid: (req) => bidFor("azure-gpt", 0.03, req.task_id),
+    });
+    agents.push(gemini, nova, azure);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        { agentId: "aws-nova", baseUrl: nova.url },
+        { agentId: "azure-gpt", baseUrl: azure.url },
+      ],
+    });
+
+    const task = await store.getTask(taskId);
+    expect(task?.status).toBe("completed");
+    expect(task?.winner_agent_id).toBe("aws-nova");
+    expect(task?.winning_bid_usd).toBe(0.02);
+    expect(task?.auction_price_usd).toBe(0.03);
+    expect(task?.result?.output).toBe("nova stayed in budget");
+
+    expect(gemini.executeCalls).toBe(1);
+    expect(nova.executeCalls).toBe(1);
+    expect(azure.executeCalls).toBe(0);
+  });
 });
