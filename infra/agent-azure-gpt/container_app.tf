@@ -26,6 +26,11 @@ resource "azurerm_container_app" "agent" {
     type = "SystemAssigned"
   }
 
+  secret {
+    name  = var.azure_openai_api_key_secret_name
+    value = coalesce(var.azure_openai_api_key, "replace-me")
+  }
+
   ingress {
     external_enabled = true
     target_port      = var.agent_port
@@ -68,8 +73,23 @@ resource "azurerm_container_app" "agent" {
       }
 
       env {
+        name  = "AZURE_OPENAI_BID_DEPLOYMENT"
+        value = var.azure_openai_bid_deployment
+      }
+
+      env {
+        name  = "AZURE_OPENAI_API_VERSION"
+        value = var.azure_openai_api_version
+      }
+
+      env {
         name  = "AZURE_OPENAI_API_KEY_SECRET_NAME"
         value = var.azure_openai_api_key_secret_name
+      }
+
+      env {
+        name        = "AZURE_OPENAI_API_KEY"
+        secret_name = var.azure_openai_api_key_secret_name
       }
 
       env {

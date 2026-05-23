@@ -86,6 +86,18 @@ variable "azure_openai_deployment" {
   type        = string
 }
 
+variable "azure_openai_bid_deployment" {
+  description = "Azure OpenAI deployment name for the small-model bid estimator."
+  type        = string
+  default     = "gpt-5-mini"
+}
+
+variable "azure_openai_api_version" {
+  description = "Azure OpenAI data-plane API version used by the Azure/GPT agent."
+  type        = string
+  default     = "2025-04-01-preview"
+}
+
 variable "azure_openai_api_key_secret_name" {
   description = "Key Vault secret name that stores the Azure OpenAI API key."
   type        = string
