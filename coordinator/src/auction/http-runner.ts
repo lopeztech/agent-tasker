@@ -6,6 +6,7 @@ import {
   type BidResponse,
   type JwtPhase,
   type PricingEntry,
+  type Result,
   type TaskId,
   type TaskSpec,
   type Tier,
@@ -72,6 +73,7 @@ const DEFAULT_BID_TIMEOUT_MS = 5_000;
 const DEFAULT_BID_INITIAL_WAIT_MS = 2_000;
 const DEFAULT_BID_EXTENSION_MS = 1_000;
 const DEFAULT_EXECUTE_TIMEOUT_MS = 60_000;
+export const EXECUTION_OVERRUN_MULTIPLIER = 10;
 
 export class HttpAuctionRunner implements AuctionRunner {
   private readonly settlements = new Map<TaskId, Promise<void>>();
@@ -161,6 +163,7 @@ export class HttpAuctionRunner implements AuctionRunner {
 
       try {
         const result = await this.execute(taskId, award.winner.agent_id, spec);
+        enforceExecutionOverrunCap(award.winner, result);
         await this.opts.store.completeTask({ taskId, result });
         return;
       } catch (err) {
@@ -277,6 +280,27 @@ export class HttpAuctionRunner implements AuctionRunner {
     if (!res.ok) throw new Error(`execute returned ${res.status}`);
     const body = (await res.json()) as unknown;
     return ResultSchema.parse(body);
+  }
+}
+
+export function computeActualUsdFromBidPrices(bid: Bid, result: Result): number {
+  return (
+    (result.actual_usage.input_tokens / 1_000_000) * bid.price_in_usd_per_mtoken +
+    (result.actual_usage.output_tokens / 1_000_000) * bid.price_out_usd_per_mtoken
+  );
+}
+
+export function enforceExecutionOverrunCap(
+  winningBid: Bid,
+  result: Result,
+  multiplier = EXECUTION_OVERRUN_MULTIPLIER,
+): void {
+  const actualUsd = computeActualUsdFromBidPrices(winningBid, result);
+  const maxUsd = winningBid.bid_usd * multiplier;
+  if (actualUsd > maxUsd) {
+    throw new Error(
+      `execution overrun exceeded ${multiplier}x bid: actual_usd=${actualUsd}, max_usd=${maxUsd}`,
+    );
   }
 }
 
