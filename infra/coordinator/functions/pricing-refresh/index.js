@@ -4,9 +4,10 @@
 // without an extra collection-group query.
 //
 // Scope today: reads live GCP Cloud Billing Catalog SKUs for Vertex AI
-// Gemini and GAEP where exposed, then merges them over FALLBACK_PRICING
-// constants (CLAUDE.md "for SKUs not exposed cleanly in [the Catalog API],
-// fall back to maintained constants in /protocol").
+// Gemini / GAEP plus AWS Bedrock's public Price List for Nova, then merges
+// them over FALLBACK_PRICING constants (CLAUDE.md "for SKUs not exposed
+// cleanly in [the Catalog API], fall back to maintained constants in
+// /protocol").
 //
 // Last-known-good behaviour (#39): per-day snapshots are append-only —
 // writes upsert `pricing/{model}/snapshots/{date}` so today's failure
@@ -19,6 +20,7 @@
 
 import { Firestore } from "@google-cloud/firestore";
 import { GoogleAuth } from "google-auth-library";
+import { fetchAwsBedrockPrices } from "./aws.js";
 import { parseGcpCatalogPrices } from "./catalog.js";
 
 const CATALOG_BASE_URL = "https://cloudbilling.googleapis.com/v1";
@@ -154,6 +156,18 @@ export const refreshPricing = async (req, res) => {
     });
   } catch (err) {
     log("ERROR", "pricing-refresh: catalog fetch failed; using fallback prices", {
+      error: err.message,
+    });
+  }
+
+  try {
+    const awsPrices = await fetchAwsBedrockPrices();
+    pricesByModel = { ...pricesByModel, ...awsPrices };
+    log("INFO", "pricing-refresh: AWS Bedrock prices loaded", {
+      models: Object.keys(awsPrices).sort(),
+    });
+  } catch (err) {
+    log("ERROR", "pricing-refresh: AWS Bedrock fetch failed; using fallback prices", {
       error: err.message,
     });
   }
