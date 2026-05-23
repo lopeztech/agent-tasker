@@ -5,10 +5,14 @@
   "type": "module",
   "description": "Daily pricing-refresh Cloud Function. Writes per-model snapshots to Firestore /pricing.",
   "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  },
   "engines": {
     "node": "22"
   },
   "dependencies": {
-    "@google-cloud/firestore": "^8.6.0"
+    "@google-cloud/firestore": "^8.6.0",
+    "google-auth-library": "^10.6.2"
   }
 }
