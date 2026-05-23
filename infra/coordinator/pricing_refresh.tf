@@ -58,10 +58,8 @@ resource "google_storage_bucket_object" "pricing_refresh_source" {
   source = data.archive_file.pricing_refresh_source.output_path
 }
 
-# Runtime SA — Firestore writer (for the /pricing collection) plus log
-# writer. #38 will add roles/billing.viewer for Cloud Billing Catalog
-# reads; left out today so the placeholder's least-privilege deploy is
-# the actual minimum.
+# Runtime SA — Firestore writer (for the /pricing collection), Cloud
+# Billing Catalog reader, plus log writer.
 resource "google_service_account" "pricing_refresh_runtime" {
   project      = var.project_id
   account_id   = "${local.name_prefix}-pricing-refresh"
@@ -78,6 +76,12 @@ resource "google_project_iam_member" "pricing_refresh_firestore" {
 resource "google_project_iam_member" "pricing_refresh_logs" {
   project = var.project_id
   role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.pricing_refresh_runtime.email}"
+}
+
+resource "google_project_iam_member" "pricing_refresh_billing_catalog" {
+  project = var.project_id
+  role    = "roles/billing.viewer"
   member  = "serviceAccount:${google_service_account.pricing_refresh_runtime.email}"
 }
 
@@ -128,6 +132,7 @@ resource "google_cloudfunctions2_function" "pricing_refresh" {
   }
 
   depends_on = [
+    google_project_iam_member.pricing_refresh_billing_catalog,
     google_project_iam_member.pricing_refresh_firestore,
     google_project_iam_member.pricing_refresh_logs,
   ]

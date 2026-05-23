@@ -3,11 +3,10 @@
 // `pricing/{model_id}` "latest" doc the coordinator and bidders can read
 // without an extra collection-group query.
 //
-// Scope today: writes FALLBACK_PRICING constants (CLAUDE.md "for SKUs not
-// exposed cleanly in [the Catalog API], fall back to maintained constants
-// in /protocol"). Real Cloud Billing Catalog integration lives behind the
-// TODO below and will overwrite the `source` field from "fallback" to
-// "catalog" as it lands per-model.
+// Scope today: reads live GCP Cloud Billing Catalog SKUs for Vertex AI
+// Gemini and GAEP where exposed, then merges them over FALLBACK_PRICING
+// constants (CLAUDE.md "for SKUs not exposed cleanly in [the Catalog API],
+// fall back to maintained constants in /protocol").
 //
 // Last-known-good behaviour (#39): per-day snapshots are append-only —
 // writes upsert `pricing/{model}/snapshots/{date}` so today's failure
@@ -19,6 +18,10 @@
 // (verified by Cloud Run's IAM layer before reaching this handler).
 
 import { Firestore } from "@google-cloud/firestore";
+import { GoogleAuth } from "google-auth-library";
+import { parseGcpCatalogPrices } from "./catalog.js";
+
+const CATALOG_BASE_URL = "https://cloudbilling.googleapis.com/v1";
 
 // Hand-maintained copy of /protocol/src/pricing.ts FALLBACK_PRICING. The
 // Cloud Function deploys from infra/coordinator/functions/pricing-refresh/
@@ -34,6 +37,59 @@ const FALLBACK_PRICING = {
   "gemini-2-5-flash": { in: 0.3, out: 2.5 },
   "gemini-2-5-pro": { in: 1.25, out: 10.0 },
 };
+
+class CloudBillingCatalogClient {
+  constructor() {
+    this.auth = new GoogleAuth({
+      scopes: ["https://www.googleapis.com/auth/cloud-billing.readonly"],
+    });
+  }
+
+  async request(path, params = {}) {
+    const client = await this.auth.getClient();
+    const url = new URL(`${CATALOG_BASE_URL}/${path}`);
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
+    const response = await client.request({ url: url.toString(), method: "GET" });
+    return response.data;
+  }
+
+  async findVertexAiServiceName() {
+    let pageToken;
+    do {
+      const body = await this.request("services", { pageSize: 5000, pageToken });
+      const service = (body.services ?? []).find((candidate) =>
+        /vertex ai/i.test(candidate.displayName ?? ""),
+      );
+      if (service?.name) return service.name;
+      pageToken = body.nextPageToken;
+    } while (pageToken);
+
+    throw new Error("Cloud Billing Catalog service for Vertex AI was not found");
+  }
+
+  async listSkus(serviceName) {
+    const skus = [];
+    let pageToken;
+    do {
+      const body = await this.request(`${serviceName}/skus`, { pageSize: 5000, pageToken });
+      skus.push(...(body.skus ?? []));
+      pageToken = body.nextPageToken;
+    } while (pageToken);
+    return skus;
+  }
+
+  async fetchGcpPricing() {
+    const serviceName = await this.findVertexAiServiceName();
+    const skus = await this.listSkus(serviceName);
+    return parseGcpCatalogPrices(skus);
+  }
+}
+
+export async function fetchGcpCatalogPrices(catalog = new CloudBillingCatalogClient()) {
+  return catalog.fetchGcpPricing();
+}
 
 function log(level, msg, extra) {
   // Structured logs play well with Cloud Logging — every entry is one
@@ -86,16 +142,24 @@ export const refreshPricing = async (req, res) => {
     return;
   }
 
-  // TODO: Pull live SKUs from the Cloud Billing Catalog (Vertex AI Gemini
-  // + GAEP) and merge over FALLBACK_PRICING per model. The Catalog client
-  // and roles/billing.viewer wiring land alongside. Until then every model
-  // writes with source: "fallback".
-
   const date = todayUtc();
   const firestore = new Firestore({ projectId });
+  let pricesByModel = { ...FALLBACK_PRICING };
+
+  try {
+    const catalogPrices = await fetchGcpCatalogPrices();
+    pricesByModel = { ...pricesByModel, ...catalogPrices };
+    log("INFO", "pricing-refresh: catalog prices loaded", {
+      models: Object.keys(catalogPrices).sort(),
+    });
+  } catch (err) {
+    log("ERROR", "pricing-refresh: catalog fetch failed; using fallback prices", {
+      error: err.message,
+    });
+  }
 
   const results = { written: [], failed: [] };
-  for (const [modelId, prices] of Object.entries(FALLBACK_PRICING)) {
+  for (const [modelId, prices] of Object.entries(pricesByModel)) {
     try {
       await writeOne(firestore, modelId, prices, date);
       results.written.push(modelId);
