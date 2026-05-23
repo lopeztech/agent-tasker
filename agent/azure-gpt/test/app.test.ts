@@ -18,6 +18,7 @@ import {
 } from "@agent-tasker/protocol";
 import { createApp } from "../src/app.js";
 import type { BidEstimator } from "../src/bid/estimator.js";
+import type { GenerativeTextClient } from "../src/execute/runner.js";
 
 const KID = "test-kid";
 const AUDIENCE = "azure-gpt" as const;
@@ -29,6 +30,12 @@ let app: Hono;
 const stubEstimator: BidEstimator = {
   async estimate() {
     return { input_tokens: 4000, output_tokens: 1000 };
+  },
+};
+
+const stubClient: GenerativeTextClient = {
+  async generate(prompt) {
+    return { output: `summary of: ${prompt}`, input_tokens: 4100, output_tokens: 950 };
   },
 };
 
@@ -67,7 +74,7 @@ beforeEach(() => {
     getKey: createLocalJWKSet({ keys: [publicJwk] }),
     expectedAudience: AUDIENCE,
   });
-  app = createApp({ verifier, estimator: stubEstimator, pricing: PRICING });
+  app = createApp({ verifier, estimator: stubEstimator, pricing: PRICING, client: stubClient });
 });
 
 describe("GET /health", () => {
@@ -143,7 +150,7 @@ describe("POST /bid", () => {
 });
 
 describe("POST /execute", () => {
-  it("verifies a valid execute token before returning not implemented", async () => {
+  it("returns a Result for a valid request", async () => {
     const t = await token({ taskId: "task-exec-1", phase: "execute" });
     const res = await app.request("/execute", {
       method: "POST",
@@ -151,13 +158,17 @@ describe("POST /execute", () => {
       body: JSON.stringify({ task_id: "task-exec-1", spec: { prompt: "do the thing" } }),
     });
 
-    expect(res.status).toBe(501);
-    expect(await res.json()).toEqual({
-      error: {
-        code: "not_implemented",
-        message: "azure-gpt execute handler is not implemented yet",
-      },
-    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      task_id: string;
+      agent_id: string;
+      output: string;
+      actual_usage: { input_tokens: number; output_tokens: number };
+    };
+    expect(body.task_id).toBe("task-exec-1");
+    expect(body.agent_id).toBe("azure-gpt");
+    expect(body.output).toBe("summary of: do the thing");
+    expect(body.actual_usage).toEqual({ input_tokens: 4100, output_tokens: 950 });
   });
 
   it("rejects bid-phase token on /execute with 401", async () => {

@@ -4,12 +4,15 @@ import { AnnounceRequestSchema, ExecuteRequestSchema } from "@agent-tasker/proto
 import { getTokenClaims, requireTaskToken, type TaskTokenVerifier } from "@agent-tasker/agent";
 import { handleBid } from "./bid/handler.js";
 import type { BidEstimator } from "./bid/estimator.js";
+import { handleExecute } from "./execute/handler.js";
+import type { GenerativeTextClient } from "./execute/runner.js";
 import { AGENT_ID } from "./index.js";
 
 export interface CreateAppOptions {
   verifier: TaskTokenVerifier;
   estimator: BidEstimator;
   pricing: PricingEntry;
+  client: GenerativeTextClient;
 }
 
 export function createApp(opts: CreateAppOptions) {
@@ -54,15 +57,8 @@ export function createApp(opts: CreateAppOptions) {
       );
     }
 
-    return c.json(
-      {
-        error: {
-          code: "not_implemented",
-          message: "azure-gpt execute handler is not implemented yet",
-        },
-      },
-      501,
-    );
+    const result = await handleExecute(parsed.data, { client: opts.client });
+    return c.json(result);
   });
 
   app.onError((err, c) => {
