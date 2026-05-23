@@ -5,11 +5,13 @@ import { FALLBACK_PRICING } from "@agent-tasker/protocol";
 import { AGENT_ID } from "./index.js";
 import { createApp } from "./app.js";
 import { AzureOpenAiBidEstimator, createAzureOpenAiJsonClient } from "./bid/estimator.js";
+import { createAzureOpenAiTextClient } from "./execute/runner.js";
 
 const port = Number(process.env["PORT"] ?? 8080);
 const jwksUrl = process.env["JWKS_URL"];
 const azureOpenAiEndpoint = process.env["AZURE_OPENAI_ENDPOINT"];
 const azureOpenAiApiKey = process.env["AZURE_OPENAI_API_KEY"];
+const executeDeployment = process.env["AZURE_OPENAI_DEPLOYMENT"] ?? "gpt-5";
 const bidDeployment = process.env["AZURE_OPENAI_BID_DEPLOYMENT"] ?? "gpt-5-mini";
 const apiVersion = process.env["AZURE_OPENAI_API_VERSION"] ?? "2025-04-01-preview";
 
@@ -38,7 +40,14 @@ const estimator = new AzureOpenAiBidEstimator(
   }),
 );
 
-const app = createApp({ verifier, estimator, pricing });
+const client = createAzureOpenAiTextClient({
+  endpoint: azureOpenAiEndpoint,
+  deployment: executeDeployment,
+  apiKey: azureOpenAiApiKey,
+  apiVersion,
+});
+
+const app = createApp({ verifier, estimator, pricing, client });
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`${AGENT_ID} agent listening on :${info.port}`);
