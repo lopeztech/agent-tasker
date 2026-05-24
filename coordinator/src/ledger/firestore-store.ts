@@ -24,13 +24,20 @@ import { applyBidAccuracySample, computeBidAccuracySample } from "./mape.js";
 import {
   AgentDeclineRollupSchema,
   AgentMapeRollupSchema,
+  AgentWinRateRollupSchema,
   BidRecordSchema,
   TaskRecordSchema,
   type AgentDeclineRollup,
   type AgentMapeRollup,
+  type AgentWinRateRollup,
   type BidRecord,
   type TaskRecord,
 } from "./types.js";
+import {
+  applyWinRateBidRemoval,
+  applyWinRateBidUpdate,
+  applyWinRateWinUpdate,
+} from "./win-rates.js";
 
 // Production-backed ledger store. Schema validation on read defends against
 // drift between deployed code and historical documents — any field rename
@@ -40,11 +47,13 @@ export class FirestoreLedgerStore implements LedgerStore {
   private readonly tasksCollection: CollectionReference;
   private readonly mapeRollupsCollection: CollectionReference;
   private readonly declineRollupsCollection: CollectionReference;
+  private readonly winRateRollupsCollection: CollectionReference;
 
   constructor(private readonly firestore: Firestore) {
     this.tasksCollection = firestore.collection("tasks");
     this.mapeRollupsCollection = firestore.collection("agent_mape_rollups");
     this.declineRollupsCollection = firestore.collection("agent_decline_rollups");
+    this.winRateRollupsCollection = firestore.collection("agent_win_rate_rollups");
   }
 
   async createTask(input: CreateTaskInput): Promise<TaskRecord> {
@@ -96,7 +105,7 @@ export class FirestoreLedgerStore implements LedgerStore {
       const previousBid = previousBidSnap.exists
         ? BidRecordSchema.parse(previousBidSnap.data())
         : undefined;
-      await this.writeDeclineRollup(tx, previousBid, record);
+      await this.writeBidResponseRollups(tx, previousBid, record);
       tx.set(bidRef, stripUndefined(record));
       return record;
     });
@@ -117,6 +126,12 @@ export class FirestoreLedgerStore implements LedgerStore {
     const snap = await this.declineRollupRef(agentId).get();
     if (!snap.exists) return null;
     return AgentDeclineRollupSchema.parse(snap.data());
+  }
+
+  async getAgentWinRateRollup(agentId: AgentId): Promise<AgentWinRateRollup | null> {
+    const snap = await this.winRateRollupRef(agentId).get();
+    if (!snap.exists) return null;
+    return AgentWinRateRollupSchema.parse(snap.data());
   }
 
   async awardTask(input: AwardTaskInput): Promise<TaskRecord> {
@@ -177,7 +192,7 @@ export class FirestoreLedgerStore implements LedgerStore {
         updated_at: nowIso(input.now),
         result: input.result,
       };
-      await this.writeMapeRollup(tx, next);
+      await this.writeSettlementRollups(tx, next);
       tx.set(ref, stripUndefined(next));
       return next;
     });
@@ -212,29 +227,67 @@ export class FirestoreLedgerStore implements LedgerStore {
     return this.declineRollupsCollection.doc(agentId);
   }
 
-  private async writeDeclineRollup(
+  private winRateRollupRef(agentId: AgentId): DocumentReference {
+    return this.winRateRollupsCollection.doc(agentId);
+  }
+
+  private async writeBidResponseRollups(
     tx: Transaction,
     previousBid: BidRecord | undefined,
     nextBid: BidRecord,
   ): Promise<void> {
-    const rollupRef = this.declineRollupRef(nextBid.agent_id);
-    const previousRollupSnap = await tx.get(rollupRef);
-    const previousRollup = previousRollupSnap.exists
-      ? AgentDeclineRollupSchema.parse(previousRollupSnap.data())
+    const declineRollupRef = this.declineRollupRef(nextBid.agent_id);
+    const winRateRollupRef = this.winRateRollupRef(nextBid.agent_id);
+    const previousDeclineRollupSnap = await tx.get(declineRollupRef);
+    const previousBidForWinRate =
+      previousBid && !isNoBid(previousBid.response) ? previousBid.response : undefined;
+    const shouldUpdateWinRate = previousBidForWinRate !== undefined || !isNoBid(nextBid.response);
+    const previousWinRateRollupSnap = shouldUpdateWinRate ? await tx.get(winRateRollupRef) : null;
+
+    const previousDeclineRollup = previousDeclineRollupSnap.exists
+      ? AgentDeclineRollupSchema.parse(previousDeclineRollupSnap.data())
       : null;
     tx.set(
-      rollupRef,
+      declineRollupRef,
       stripUndefined(
-        applyDeclineRollupUpdate(previousRollup, {
+        applyDeclineRollupUpdate(previousDeclineRollup, {
           previousResponse: previousBid?.response,
           nextResponse: nextBid.response,
           updatedAt: nextBid.timestamp,
         }),
       ),
     );
+
+    const previousWinRateRollup = previousWinRateRollupSnap?.exists
+      ? AgentWinRateRollupSchema.parse(previousWinRateRollupSnap.data())
+      : null;
+    if (isNoBid(nextBid.response)) {
+      if (!previousBidForWinRate) return;
+      tx.set(
+        winRateRollupRef,
+        stripUndefined(
+          applyWinRateBidRemoval(previousWinRateRollup, {
+            previousBid: previousBidForWinRate,
+            updatedAt: nextBid.timestamp,
+          }),
+        ),
+      );
+      return;
+    }
+
+    tx.set(
+      winRateRollupRef,
+      stripUndefined(
+        applyWinRateBidUpdate(previousWinRateRollup, {
+          previousBid: previousBidForWinRate,
+          nextBid: nextBid.response,
+          updatedAt: nextBid.timestamp,
+        }),
+      ),
+    );
   }
 
-  private async writeMapeRollup(tx: Transaction, task: TaskRecord): Promise<void> {
+  private async writeSettlementRollups(tx: Transaction, task: TaskRecord): Promise<void> {
     if (!task.winner_agent_id || !task.result) return;
 
     const bidSnap = await tx.get(
@@ -244,20 +297,38 @@ export class FirestoreLedgerStore implements LedgerStore {
     const bidRecord = BidRecordSchema.parse(bidSnap.data());
     if (isNoBid(bidRecord.response)) return;
 
-    const sample = computeBidAccuracySample(bidRecord.response, task.result);
-    if (!sample) return;
+    const mapeRollupRef = this.mapeRollupRef(task.winner_agent_id);
+    const winRateRollupRef = this.winRateRollupRef(task.winner_agent_id);
+    const previousMapeRollupSnap = await tx.get(mapeRollupRef);
+    const previousWinRateRollupSnap = await tx.get(winRateRollupRef);
 
-    const rollupRef = this.mapeRollupRef(task.winner_agent_id);
-    const previousSnap = await tx.get(rollupRef);
-    const previous = previousSnap.exists ? AgentMapeRollupSchema.parse(previousSnap.data()) : null;
+    const sample = computeBidAccuracySample(bidRecord.response, task.result);
+    if (sample) {
+      const previousMapeRollup = previousMapeRollupSnap.exists
+        ? AgentMapeRollupSchema.parse(previousMapeRollupSnap.data())
+        : null;
+      tx.set(
+        mapeRollupRef,
+        stripUndefined(
+          applyBidAccuracySample(previousMapeRollup, {
+            agentId: task.winner_agent_id,
+            taskId: task.task_id,
+            updatedAt: task.updated_at,
+            sample,
+          }),
+        ),
+      );
+    }
+
+    const previousWinRateRollup = previousWinRateRollupSnap.exists
+      ? AgentWinRateRollupSchema.parse(previousWinRateRollupSnap.data())
+      : null;
     tx.set(
-      rollupRef,
+      winRateRollupRef,
       stripUndefined(
-        applyBidAccuracySample(previous, {
-          agentId: task.winner_agent_id,
-          taskId: task.task_id,
+        applyWinRateWinUpdate(previousWinRateRollup, {
+          winningBid: bidRecord.response,
           updatedAt: task.updated_at,
-          sample,
         }),
       ),
     );

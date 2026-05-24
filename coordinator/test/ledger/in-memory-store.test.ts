@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { AgentId, Bid, NoBid, PricingEntry, Result, TaskSpec } from "@agent-tasker/protocol";
+import type {
+  AgentId,
+  Bid,
+  NoBid,
+  PricingEntry,
+  Result,
+  TaskSpec,
+  Tier,
+} from "@agent-tasker/protocol";
 import { InMemoryLedgerStore } from "../../src/ledger/in-memory-store.js";
 import {
   InvalidTransitionError,
@@ -22,11 +30,11 @@ const PRICING: PricingEntry[] = [
   },
 ];
 
-function makeBid(agentId: AgentId, bidUsd: number, taskId = TASK_ID): Bid {
+function makeBid(agentId: AgentId, bidUsd: number, taskId = TASK_ID, tier: Tier = "frontier"): Bid {
   return {
     task_id: taskId,
     agent_id: agentId,
-    tier: "frontier",
+    tier,
     model_family: "gemini",
     model_id: "gemini-2-5-pro",
     est_input_tokens: 4000,
@@ -191,6 +199,30 @@ describe("recordBidResponse", () => {
     expect(rollup?.last_no_bid_reason).toBeUndefined();
   });
 
+  it("tracks per-agent bid attempts by tier for win-rate rollups", async () => {
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeBid("gcp-gemini", 0.02, TASK_ID, "small"),
+      pricingSnapshot: PRICING,
+    });
+
+    const rollup = await store.getAgentWinRateRollup("gcp-gemini");
+    expect(rollup).toMatchObject({
+      agent_id: "gcp-gemini",
+      bid_count: 1,
+      win_count: 0,
+      win_rate: 0,
+      last_task_id: TASK_ID,
+      last_event: "bid",
+      last_tier: "small",
+      tiers: {
+        small: { bid_count: 1, win_count: 0, win_rate: 0 },
+        medium: { bid_count: 0, win_count: 0, win_rate: 0 },
+        frontier: { bid_count: 0, win_count: 0, win_rate: 0 },
+      },
+    });
+  });
+
   it("is idempotent on (task_id, agent_id) — final write wins", async () => {
     await store.recordBidResponse({
       taskId: TASK_ID,
@@ -232,6 +264,54 @@ describe("recordBidResponse", () => {
         internal_error: 0,
       },
       last_response_kind: "bid",
+    });
+  });
+
+  it("adjusts win-rate bid counts when a bid response is overwritten", async () => {
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeBid("gcp-gemini", 0.02, TASK_ID, "small"),
+      pricingSnapshot: PRICING,
+    });
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeBid("gcp-gemini", 0.03, TASK_ID, "frontier"),
+      pricingSnapshot: PRICING,
+    });
+
+    const rollup = await store.getAgentWinRateRollup("gcp-gemini");
+    expect(rollup).toMatchObject({
+      bid_count: 1,
+      win_count: 0,
+      tiers: {
+        small: { bid_count: 0, win_count: 0, win_rate: 0 },
+        frontier: { bid_count: 1, win_count: 0, win_rate: 0 },
+      },
+      last_tier: "frontier",
+    });
+  });
+
+  it("removes win-rate bid counts when a bid is overwritten by no_bid", async () => {
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeBid("aws-nova", 0.02, TASK_ID, "medium"),
+      pricingSnapshot: PRICING,
+    });
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeNoBid("aws-nova"),
+      pricingSnapshot: PRICING,
+    });
+
+    const rollup = await store.getAgentWinRateRollup("aws-nova");
+    expect(rollup).toMatchObject({
+      bid_count: 0,
+      win_count: 0,
+      win_rate: 0,
+      tiers: {
+        medium: { bid_count: 0, win_count: 0, win_rate: 0 },
+      },
+      last_tier: "medium",
     });
   });
 
@@ -424,6 +504,27 @@ describe("markExecuting / completeTask / failTask", () => {
     expect(rollup?.mape).toBeCloseTo((0.26875 + 0.4625) / 2);
     expect(rollup?.mean_signed_percentage_error).toBeCloseTo((-0.26875 + 0.4625) / 2);
     expect(rollup?.last_task_id).toBe(secondTaskId);
+  });
+
+  it("completeTask updates the winner's win-rate rollup by tier", async () => {
+    await store.markExecuting(TASK_ID);
+    await store.completeTask({ taskId: TASK_ID, result: makeResult("gcp-gemini") });
+
+    const rollup = await store.getAgentWinRateRollup("gcp-gemini");
+    expect(rollup).toMatchObject({
+      agent_id: "gcp-gemini",
+      bid_count: 1,
+      win_count: 1,
+      win_rate: 1,
+      last_task_id: TASK_ID,
+      last_event: "win",
+      last_tier: "frontier",
+      tiers: {
+        frontier: { bid_count: 1, win_count: 1, win_rate: 1 },
+        small: { bid_count: 0, win_count: 0, win_rate: 0 },
+        medium: { bid_count: 0, win_count: 0, win_rate: 0 },
+      },
+    });
   });
 
   it("completeTask rejects directly from awarded (must mark executing first)", async () => {
