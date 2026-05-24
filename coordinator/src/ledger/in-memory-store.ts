@@ -13,8 +13,9 @@ import type {
   LedgerStore,
   RecordBidResponseInput,
 } from "./store.js";
+import { applyDeclineRollupUpdate } from "./declines.js";
 import { applyBidAccuracySample, computeBidAccuracySample } from "./mape.js";
-import type { AgentMapeRollup, BidRecord, TaskRecord } from "./types.js";
+import type { AgentDeclineRollup, AgentMapeRollup, BidRecord, TaskRecord } from "./types.js";
 
 // In-memory ledger backing — single-process, single-test usage. Maps are
 // keyed by taskId for tasks and by `${taskId}:${agent_id}` for bids.
@@ -25,6 +26,7 @@ export class InMemoryLedgerStore implements LedgerStore {
   private readonly tasks = new Map<string, TaskRecord>();
   private readonly bids = new Map<string, BidRecord>();
   private readonly mapeRollups = new Map<AgentId, AgentMapeRollup>();
+  private readonly declineRollups = new Map<AgentId, AgentDeclineRollup>();
 
   async createTask(input: CreateTaskInput): Promise<TaskRecord> {
     if (this.tasks.has(input.taskId)) {
@@ -65,7 +67,9 @@ export class InMemoryLedgerStore implements LedgerStore {
       response: input.response,
       pricing_snapshot: input.pricingSnapshot,
     };
+    const previous = this.bids.get(bidKey(input.taskId, input.response.agent_id));
     this.bids.set(bidKey(input.taskId, input.response.agent_id), record);
+    this.writeDeclineRollup(previous, record);
     return clone(record);
   }
 
@@ -81,6 +85,11 @@ export class InMemoryLedgerStore implements LedgerStore {
 
   async getAgentMapeRollup(agentId: AgentId): Promise<AgentMapeRollup | null> {
     const record = this.mapeRollups.get(agentId);
+    return record ? clone(record) : null;
+  }
+
+  async getAgentDeclineRollup(agentId: AgentId): Promise<AgentDeclineRollup | null> {
+    const record = this.declineRollups.get(agentId);
     return record ? clone(record) : null;
   }
 
@@ -187,6 +196,18 @@ export class InMemoryLedgerStore implements LedgerStore {
         taskId: task.task_id,
         updatedAt: task.updated_at,
         sample,
+      }),
+    );
+  }
+
+  private writeDeclineRollup(previous: BidRecord | undefined, next: BidRecord): void {
+    const previousRollup = this.declineRollups.get(next.agent_id) ?? null;
+    this.declineRollups.set(
+      next.agent_id,
+      applyDeclineRollupUpdate(previousRollup, {
+        previousResponse: previous?.response,
+        nextResponse: next.response,
+        updatedAt: next.timestamp,
       }),
     );
   }

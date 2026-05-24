@@ -146,6 +146,51 @@ describe("recordBidResponse", () => {
     });
   });
 
+  it("tracks per-agent decline counts and rates by reason", async () => {
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeNoBid("aws-nova"),
+      pricingSnapshot: PRICING,
+    });
+
+    const rollup = await store.getAgentDeclineRollup("aws-nova");
+    expect(rollup).toMatchObject({
+      agent_id: "aws-nova",
+      bid_response_count: 1,
+      bid_count: 0,
+      decline_count: 1,
+      decline_rate: 1,
+      decline_reasons: {
+        context_overflow: 0,
+        policy: 0,
+        capability: 1,
+        internal_error: 0,
+      },
+      last_task_id: TASK_ID,
+      last_response_kind: "no_bid",
+      last_no_bid_reason: "capability",
+    });
+  });
+
+  it("tracks accepted bids in the decline-rate denominator", async () => {
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeBid("gcp-gemini", 0.02),
+      pricingSnapshot: PRICING,
+    });
+
+    const rollup = await store.getAgentDeclineRollup("gcp-gemini");
+    expect(rollup).toMatchObject({
+      agent_id: "gcp-gemini",
+      bid_response_count: 1,
+      bid_count: 1,
+      decline_count: 0,
+      decline_rate: 0,
+      last_response_kind: "bid",
+    });
+    expect(rollup?.last_no_bid_reason).toBeUndefined();
+  });
+
   it("is idempotent on (task_id, agent_id) — final write wins", async () => {
     await store.recordBidResponse({
       taskId: TASK_ID,
@@ -160,6 +205,34 @@ describe("recordBidResponse", () => {
     const bids = await store.listBids(TASK_ID);
     expect(bids).toHaveLength(1);
     expect(bids[0]?.response).toMatchObject({ bid_usd: 0.02 });
+  });
+
+  it("adjusts decline rollups when a bid response is overwritten", async () => {
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeNoBid("aws-nova"),
+      pricingSnapshot: PRICING,
+    });
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeBid("aws-nova", 0.02),
+      pricingSnapshot: PRICING,
+    });
+
+    const rollup = await store.getAgentDeclineRollup("aws-nova");
+    expect(rollup).toMatchObject({
+      bid_response_count: 1,
+      bid_count: 1,
+      decline_count: 0,
+      decline_rate: 0,
+      decline_reasons: {
+        context_overflow: 0,
+        policy: 0,
+        capability: 0,
+        internal_error: 0,
+      },
+      last_response_kind: "bid",
+    });
   });
 
   it("rejects writes after the bidding window has closed", async () => {

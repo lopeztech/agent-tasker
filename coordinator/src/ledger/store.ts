@@ -7,7 +7,7 @@ import type {
   TaskId,
   TaskSpec,
 } from "@agent-tasker/protocol";
-import type { AgentMapeRollup, BidRecord, TaskRecord } from "./types.js";
+import type { AgentDeclineRollup, AgentMapeRollup, BidRecord, TaskRecord } from "./types.js";
 
 // Persistence layer for the auction. All transition methods are idempotent at
 // the document-key level — retrying the same call with the same input
@@ -39,6 +39,8 @@ export interface LedgerStore {
   listBids(taskId: TaskId): Promise<BidRecord[]>;
 
   getAgentMapeRollup(agentId: AgentId): Promise<AgentMapeRollup | null>;
+
+  getAgentDeclineRollup(agentId: AgentId): Promise<AgentDeclineRollup | null>;
 
   // Transitions bidding → awarded. Re-auction may also transition
   // executing → awarded with a different winner after excluding a failed
