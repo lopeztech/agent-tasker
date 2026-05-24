@@ -1,4 +1,4 @@
-import { isNoBid, type TaskId } from "@agent-tasker/protocol";
+import { isNoBid, type AgentId, type TaskId } from "@agent-tasker/protocol";
 import {
   InvalidTransitionError,
   TaskAlreadyExistsError,
@@ -13,7 +13,8 @@ import type {
   LedgerStore,
   RecordBidResponseInput,
 } from "./store.js";
-import type { BidRecord, TaskRecord } from "./types.js";
+import { applyBidAccuracySample, computeBidAccuracySample } from "./mape.js";
+import type { AgentMapeRollup, BidRecord, TaskRecord } from "./types.js";
 
 // In-memory ledger backing — single-process, single-test usage. Maps are
 // keyed by taskId for tasks and by `${taskId}:${agent_id}` for bids.
@@ -23,6 +24,7 @@ import type { BidRecord, TaskRecord } from "./types.js";
 export class InMemoryLedgerStore implements LedgerStore {
   private readonly tasks = new Map<string, TaskRecord>();
   private readonly bids = new Map<string, BidRecord>();
+  private readonly mapeRollups = new Map<AgentId, AgentMapeRollup>();
 
   async createTask(input: CreateTaskInput): Promise<TaskRecord> {
     if (this.tasks.has(input.taskId)) {
@@ -75,6 +77,11 @@ export class InMemoryLedgerStore implements LedgerStore {
     }
     out.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     return out;
+  }
+
+  async getAgentMapeRollup(agentId: AgentId): Promise<AgentMapeRollup | null> {
+    const record = this.mapeRollups.get(agentId);
+    return record ? clone(record) : null;
   }
 
   async awardTask(input: AwardTaskInput): Promise<TaskRecord> {
@@ -139,6 +146,7 @@ export class InMemoryLedgerStore implements LedgerStore {
       result: input.result,
     };
     this.tasks.set(input.taskId, next);
+    this.writeMapeRollup(next, input.result);
     return clone(next);
   }
 
@@ -161,6 +169,26 @@ export class InMemoryLedgerStore implements LedgerStore {
     };
     this.tasks.set(input.taskId, next);
     return clone(next);
+  }
+
+  private writeMapeRollup(task: TaskRecord, result: TaskRecord["result"]): void {
+    if (!task.winner_agent_id || !result) return;
+    const bidRecord = this.bids.get(bidKey(task.task_id, task.winner_agent_id));
+    if (!bidRecord || isNoBid(bidRecord.response)) return;
+
+    const sample = computeBidAccuracySample(bidRecord.response, result);
+    if (!sample) return;
+
+    const previous = this.mapeRollups.get(task.winner_agent_id) ?? null;
+    this.mapeRollups.set(
+      task.winner_agent_id,
+      applyBidAccuracySample(previous, {
+        agentId: task.winner_agent_id,
+        taskId: task.task_id,
+        updatedAt: task.updated_at,
+        sample,
+      }),
+    );
   }
 
   private requireTask(taskId: TaskId): TaskRecord {

@@ -59,3 +59,22 @@ export const BidRecordSchema = z.object({
   pricing_snapshot: z.array(PricingEntrySchema),
 });
 export type BidRecord = z.infer<typeof BidRecordSchema>;
+
+// Per-agent rolling bid accuracy at agent_mape_rollups/{agent_id}. Updated
+// when a winning task settles so tie-breaking and later score-weighted
+// auction layers can read one small document instead of scanning history.
+export const AgentMapeRollupSchema = z.object({
+  agent_id: AgentIdSchema,
+  updated_at: Iso8601,
+  settled_task_count: z.number().int().nonnegative(),
+  absolute_percentage_error_sum: z.number().nonnegative(),
+  signed_percentage_error_sum: z.number(),
+  mape: z.number().nonnegative(),
+  mean_signed_percentage_error: z.number(),
+  last_task_id: TaskIdSchema,
+  last_bid_usd: z.number().nonnegative(),
+  last_actual_usd: z.number().nonnegative(),
+  last_absolute_percentage_error: z.number().nonnegative(),
+  last_signed_percentage_error: z.number(),
+});
+export type AgentMapeRollup = z.infer<typeof AgentMapeRollupSchema>;

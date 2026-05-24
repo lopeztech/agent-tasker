@@ -7,7 +7,7 @@ import type {
   TaskId,
   TaskSpec,
 } from "@agent-tasker/protocol";
-import type { BidRecord, TaskRecord } from "./types.js";
+import type { AgentMapeRollup, BidRecord, TaskRecord } from "./types.js";
 
 // Persistence layer for the auction. All transition methods are idempotent at
 // the document-key level — retrying the same call with the same input
@@ -38,6 +38,8 @@ export interface LedgerStore {
 
   listBids(taskId: TaskId): Promise<BidRecord[]>;
 
+  getAgentMapeRollup(agentId: AgentId): Promise<AgentMapeRollup | null>;
+
   // Transitions bidding → awarded. Re-auction may also transition
   // executing → awarded with a different winner after excluding a failed
   // executor. Idempotent only if the *same* winner + pricing is reasserted.
@@ -47,7 +49,8 @@ export interface LedgerStore {
   markExecuting(taskId: TaskId, now?: Date): Promise<TaskRecord>;
 
   // Transitions executing → completed. Idempotent if the same result is
-  // reasserted.
+  // reasserted. On first completion, writes the winning agent's MAPE rollup
+  // when the winning bid record is available and MAPE-eligible.
   completeTask(input: CompleteTaskInput): Promise<TaskRecord>;
 
   // Move into the terminal `failed` state from any non-terminal state.
