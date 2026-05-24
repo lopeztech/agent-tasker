@@ -10,6 +10,7 @@ data "aws_partition" "current" {}
 
 locals {
   name_prefix = "${var.project}-${var.env}"
+  agent_name  = "${local.name_prefix}-aws-nova"
 
   common_tags = merge(
     {

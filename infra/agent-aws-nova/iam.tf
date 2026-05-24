@@ -19,7 +19,7 @@ data "aws_iam_policy_document" "agent_assume_role" {
 }
 
 resource "aws_iam_role" "agent_runtime" {
-  name               = "${local.name_prefix}-aws-nova-runtime"
+  name               = "${local.agent_name}-runtime"
   description        = "Runtime role for the AWS/Nova agent; Bedrock access is limited to Amazon Nova models."
   assume_role_policy = data.aws_iam_policy_document.agent_assume_role.json
 }
@@ -47,7 +47,27 @@ data "aws_iam_policy_document" "agent_bedrock_nova" {
 }
 
 resource "aws_iam_role_policy" "agent_bedrock_nova" {
-  name   = "${local.name_prefix}-aws-nova-bedrock"
+  name   = "${local.agent_name}-bedrock"
   role   = aws_iam_role.agent_runtime.id
   policy = data.aws_iam_policy_document.agent_bedrock_nova.json
+}
+
+data "aws_iam_policy_document" "agent_logs" {
+  statement {
+    sid    = "WriteOwnLambdaLogs"
+    effect = "Allow"
+
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+
+    resources = ["${aws_cloudwatch_log_group.agent.arn}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "agent_logs" {
+  name   = "${local.agent_name}-logs"
+  role   = aws_iam_role.agent_runtime.id
+  policy = data.aws_iam_policy_document.agent_logs.json
 }
