@@ -1,0 +1,11 @@
+{
+  "name": "small-summary",
+  "tier": "small",
+  "expected_usd_range": {
+    "min": 0.0005,
+    "max": 0.03
+  },
+  "task": {
+    "prompt": "Summarize this release note in three concise bullets: The coordinator now records bid responses, awards the lowest bidder using Vickrey pricing, and stores final task results for later replay."
+  }
+}

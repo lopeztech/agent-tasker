@@ -1,0 +1,12 @@
+{
+  "name": "frontier-multistep-plan",
+  "tier": "frontier",
+  "expected_usd_range": {
+    "min": 0.01,
+    "max": 0.25
+  },
+  "task": {
+    "prompt": "Create a phased implementation plan for adding a new cloud agent to the auction system. Include protocol changes, infrastructure tasks, security checks, eval coverage, and rollout risks. Separate the work into milestones with acceptance criteria.",
+    "min_tier": "frontier"
+  }
+}
