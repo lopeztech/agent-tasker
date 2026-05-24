@@ -78,3 +78,28 @@ export const AgentMapeRollupSchema = z.object({
   last_signed_percentage_error: z.number(),
 });
 export type AgentMapeRollup = z.infer<typeof AgentMapeRollupSchema>;
+
+const DeclineReasonCountsSchema = z.object({
+  context_overflow: z.number().int().nonnegative(),
+  policy: z.number().int().nonnegative(),
+  capability: z.number().int().nonnegative(),
+  internal_error: z.number().int().nonnegative(),
+});
+
+// Per-agent decline health at agent_decline_rollups/{agent_id}. Updated on
+// every bid response, including idempotent overwrites, so the denominator is
+// all observed bid responses and the numerator is no_bid responses split by
+// protocol reason.
+export const AgentDeclineRollupSchema = z.object({
+  agent_id: AgentIdSchema,
+  updated_at: Iso8601,
+  bid_response_count: z.number().int().nonnegative(),
+  bid_count: z.number().int().nonnegative(),
+  decline_count: z.number().int().nonnegative(),
+  decline_rate: z.number().min(0).max(1),
+  decline_reasons: DeclineReasonCountsSchema,
+  last_task_id: TaskIdSchema,
+  last_response_kind: z.enum(["bid", "no_bid"]),
+  last_no_bid_reason: NoBidReasonSchema.optional(),
+});
+export type AgentDeclineRollup = z.infer<typeof AgentDeclineRollupSchema>;
