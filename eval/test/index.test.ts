@@ -1,3 +1,5 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseFixture, runEval, summarizeResults } from "../src/index.js";
 
@@ -12,6 +14,39 @@ describe("parseFixture", () => {
       name: "summary",
       task: { prompt: "summarize this" },
     });
+  });
+
+  it("preserves tier and expected USD range metadata", () => {
+    const fixture = parseFixture({
+      name: "summary",
+      tier: "small",
+      expected_usd_range: { min: 0.001, max: 0.02 },
+      task: { prompt: "summarize this" },
+    });
+
+    expect(fixture).toMatchObject({
+      tier: "small",
+      expected_usd_range: { min: 0.001, max: 0.02 },
+    });
+  });
+
+  it("loads every checked-in fixture", async () => {
+    const fixturesDir = new URL("../fixtures", import.meta.url);
+    const files = (await readdir(fixturesDir)).filter((file) => file.endsWith(".json"));
+
+    expect(files.sort()).toEqual([
+      "frontier-multistep-plan.json",
+      "medium-structured-extraction.json",
+      "small-summary.json",
+    ]);
+
+    for (const file of files) {
+      const raw = JSON.parse(await readFile(join(fixturesDir.pathname, file), "utf8")) as unknown;
+      const fixture = parseFixture(raw, file);
+      expect(fixture.name).toBeTruthy();
+      expect(fixture.task.prompt.length).toBeGreaterThan(20);
+      expect(fixture.expected_usd_range?.max).toBeGreaterThan(fixture.expected_usd_range?.min ?? 0);
+    }
   });
 });
 

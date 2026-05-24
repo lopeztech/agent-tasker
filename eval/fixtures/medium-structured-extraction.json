@@ -1,0 +1,12 @@
+{
+  "name": "medium-structured-extraction",
+  "tier": "medium",
+  "expected_usd_range": {
+    "min": 0.002,
+    "max": 0.08
+  },
+  "task": {
+    "prompt": "Extract a JSON object from the following customer note with keys account_name, renewal_risk, requested_follow_up, and open_questions. Note: Contoso Analytics is happy with uptime but worried about token spend. They asked for a pricing review next Tuesday and want to know whether batch evals can run overnight.",
+    "min_tier": "medium"
+  }
+}

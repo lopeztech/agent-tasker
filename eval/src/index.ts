@@ -11,6 +11,11 @@ import {
 export interface EvalFixture {
   name: string;
   task: TaskSpec;
+  tier?: "small" | "medium" | "frontier";
+  expected_usd_range?: {
+    min: number;
+    max: number;
+  };
 }
 
 export interface EvalRunOptions {
@@ -76,10 +81,15 @@ export function parseFixture(raw: unknown, fallbackName = "fixture"): EvalFixtur
   const taskInput = "task" in raw ? raw["task"] : raw;
   const task = TaskSpecSchema.parse(taskInput);
   const name = raw["name"];
-  return {
+  const fixture: EvalFixture = {
     name: typeof name === "string" && name.length > 0 ? name : fallbackName,
     task,
   };
+  const tier = raw["tier"];
+  if (tier === "small" || tier === "medium" || tier === "frontier") fixture.tier = tier;
+  const expectedRange = parseExpectedUsdRange(raw["expected_usd_range"]);
+  if (expectedRange) fixture.expected_usd_range = expectedRange;
+  return fixture;
 }
 
 export async function runEval(options: EvalRunOptions): Promise<EvalSummary> {
@@ -185,6 +195,15 @@ function normalizeBaseUrl(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseExpectedUsdRange(value: unknown): EvalFixture["expected_usd_range"] | undefined {
+  if (!isRecord(value)) return undefined;
+  const min = value["min"];
+  const max = value["max"];
+  if (typeof min !== "number" || typeof max !== "number") return undefined;
+  if (min < 0 || max < min) throw new Error("expected_usd_range must be nonnegative and ordered");
+  return { min, max };
 }
 
 function parsePositiveInt(value: string | undefined, name: string): number {
