@@ -7,8 +7,12 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "bin": {
+    "agent-tasker-eval": "./dist/index.js"
   },
   "dependencies": {
     "@agent-tasker/protocol": "workspace:*"
