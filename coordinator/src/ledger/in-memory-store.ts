@@ -15,7 +15,18 @@ import type {
 } from "./store.js";
 import { applyDeclineRollupUpdate } from "./declines.js";
 import { applyBidAccuracySample, computeBidAccuracySample } from "./mape.js";
-import type { AgentDeclineRollup, AgentMapeRollup, BidRecord, TaskRecord } from "./types.js";
+import type {
+  AgentDeclineRollup,
+  AgentMapeRollup,
+  AgentWinRateRollup,
+  BidRecord,
+  TaskRecord,
+} from "./types.js";
+import {
+  applyWinRateBidRemoval,
+  applyWinRateBidUpdate,
+  applyWinRateWinUpdate,
+} from "./win-rates.js";
 
 // In-memory ledger backing — single-process, single-test usage. Maps are
 // keyed by taskId for tasks and by `${taskId}:${agent_id}` for bids.
@@ -27,6 +38,7 @@ export class InMemoryLedgerStore implements LedgerStore {
   private readonly bids = new Map<string, BidRecord>();
   private readonly mapeRollups = new Map<AgentId, AgentMapeRollup>();
   private readonly declineRollups = new Map<AgentId, AgentDeclineRollup>();
+  private readonly winRateRollups = new Map<AgentId, AgentWinRateRollup>();
 
   async createTask(input: CreateTaskInput): Promise<TaskRecord> {
     if (this.tasks.has(input.taskId)) {
@@ -70,6 +82,7 @@ export class InMemoryLedgerStore implements LedgerStore {
     const previous = this.bids.get(bidKey(input.taskId, input.response.agent_id));
     this.bids.set(bidKey(input.taskId, input.response.agent_id), record);
     this.writeDeclineRollup(previous, record);
+    this.writeWinRateBidRollup(previous, record);
     return clone(record);
   }
 
@@ -90,6 +103,11 @@ export class InMemoryLedgerStore implements LedgerStore {
 
   async getAgentDeclineRollup(agentId: AgentId): Promise<AgentDeclineRollup | null> {
     const record = this.declineRollups.get(agentId);
+    return record ? clone(record) : null;
+  }
+
+  async getAgentWinRateRollup(agentId: AgentId): Promise<AgentWinRateRollup | null> {
+    const record = this.winRateRollups.get(agentId);
     return record ? clone(record) : null;
   }
 
@@ -156,6 +174,7 @@ export class InMemoryLedgerStore implements LedgerStore {
     };
     this.tasks.set(input.taskId, next);
     this.writeMapeRollup(next, input.result);
+    this.writeWinRateWinRollup(next);
     return clone(next);
   }
 
@@ -208,6 +227,47 @@ export class InMemoryLedgerStore implements LedgerStore {
         previousResponse: previous?.response,
         nextResponse: next.response,
         updatedAt: next.timestamp,
+      }),
+    );
+  }
+
+  private writeWinRateBidRollup(previous: BidRecord | undefined, next: BidRecord): void {
+    const previousBid = previous && !isNoBid(previous.response) ? previous.response : undefined;
+    if (isNoBid(next.response)) {
+      if (!previousBid) return;
+      const previousRollup = this.winRateRollups.get(next.agent_id) ?? null;
+      this.winRateRollups.set(
+        next.agent_id,
+        applyWinRateBidRemoval(previousRollup, {
+          previousBid,
+          updatedAt: next.timestamp,
+        }),
+      );
+      return;
+    }
+
+    const previousRollup = this.winRateRollups.get(next.agent_id) ?? null;
+    this.winRateRollups.set(
+      next.agent_id,
+      applyWinRateBidUpdate(previousRollup, {
+        previousBid,
+        nextBid: next.response,
+        updatedAt: next.timestamp,
+      }),
+    );
+  }
+
+  private writeWinRateWinRollup(task: TaskRecord): void {
+    if (!task.winner_agent_id) return;
+    const bidRecord = this.bids.get(bidKey(task.task_id, task.winner_agent_id));
+    if (!bidRecord || isNoBid(bidRecord.response)) return;
+
+    const previousRollup = this.winRateRollups.get(task.winner_agent_id) ?? null;
+    this.winRateRollups.set(
+      task.winner_agent_id,
+      applyWinRateWinUpdate(previousRollup, {
+        winningBid: bidRecord.response,
+        updatedAt: task.updated_at,
       }),
     );
   }

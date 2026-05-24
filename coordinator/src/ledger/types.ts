@@ -8,6 +8,7 @@ import {
   TaskIdSchema,
   TaskSpecSchema,
   TaskStatusSchema,
+  TierSchema,
 } from "@agent-tasker/protocol";
 
 const Iso8601 = z.string().datetime({ offset: true });
@@ -103,3 +104,31 @@ export const AgentDeclineRollupSchema = z.object({
   last_no_bid_reason: NoBidReasonSchema.optional(),
 });
 export type AgentDeclineRollup = z.infer<typeof AgentDeclineRollupSchema>;
+
+const TierStatsSchema = z.object({
+  bid_count: z.number().int().nonnegative(),
+  win_count: z.number().int().nonnegative(),
+  win_rate: z.number().min(0).max(1),
+});
+
+const TierStatsByTierSchema = z.object({
+  small: TierStatsSchema,
+  medium: TierStatsSchema,
+  frontier: TierStatsSchema,
+});
+
+// Per-agent win concentration at agent_win_rate_rollups/{agent_id}. Bid
+// attempts are recorded when real bids arrive; wins are recorded on settle
+// against the winning bid's declared tier.
+export const AgentWinRateRollupSchema = z.object({
+  agent_id: AgentIdSchema,
+  updated_at: Iso8601,
+  bid_count: z.number().int().nonnegative(),
+  win_count: z.number().int().nonnegative(),
+  win_rate: z.number().min(0).max(1),
+  tiers: TierStatsByTierSchema,
+  last_task_id: TaskIdSchema,
+  last_event: z.enum(["bid", "win"]),
+  last_tier: TierSchema,
+});
+export type AgentWinRateRollup = z.infer<typeof AgentWinRateRollupSchema>;
