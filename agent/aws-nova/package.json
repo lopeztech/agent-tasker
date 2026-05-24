@@ -8,10 +8,12 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
     "@agent-tasker/agent": "workspace:*",
-    "@agent-tasker/protocol": "workspace:*"
+    "@agent-tasker/protocol": "workspace:*",
+    "zod": "^3.25.76"
   }
 }
