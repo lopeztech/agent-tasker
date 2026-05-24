@@ -1,0 +1,14 @@
+# Usage:
+#   terraform init -backend-config=backend.hcl
+#
+# Manual prereqs:
+#   - S3 bucket for Terraform state
+#   - optional DynamoDB table for state locking if your environment uses it
+#
+# bucket = "agent-tasker-dev-terraform-state"
+# key    = "agent-aws-nova/terraform.tfstate"
+# region = "us-east-1"
+#
+# Optional:
+# dynamodb_table = "agent-tasker-dev-terraform-locks"
+# encrypt        = true
