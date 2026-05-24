@@ -22,9 +22,9 @@ const PRICING: PricingEntry[] = [
   },
 ];
 
-function makeBid(agentId: AgentId, bidUsd: number): Bid {
+function makeBid(agentId: AgentId, bidUsd: number, taskId = TASK_ID): Bid {
   return {
-    task_id: TASK_ID,
+    task_id: taskId,
     agent_id: agentId,
     tier: "frontier",
     model_family: "gemini",
@@ -39,18 +39,18 @@ function makeBid(agentId: AgentId, bidUsd: number): Bid {
   };
 }
 
-function makeNoBid(agentId: AgentId): NoBid {
+function makeNoBid(agentId: AgentId, taskId = TASK_ID): NoBid {
   return {
-    task_id: TASK_ID,
+    task_id: taskId,
     agent_id: agentId,
     status: "no_bid",
     reason: "capability",
   };
 }
 
-function makeResult(agentId: AgentId): Result {
+function makeResult(agentId: AgentId, taskId = TASK_ID): Result {
   return {
-    task_id: TASK_ID,
+    task_id: taskId,
     agent_id: agentId,
     output: "summary text",
     actual_usage: { input_tokens: 4100, output_tokens: 950 },
@@ -266,6 +266,11 @@ describe("awardTask", () => {
 describe("markExecuting / completeTask / failTask", () => {
   beforeEach(async () => {
     await store.createTask({ taskId: TASK_ID, spec: SPEC });
+    await store.recordBidResponse({
+      taskId: TASK_ID,
+      response: makeBid("gcp-gemini", 0.02),
+      pricingSnapshot: PRICING,
+    });
     await store.awardTask({
       taskId: TASK_ID,
       winnerAgentId: "gcp-gemini",
@@ -291,6 +296,61 @@ describe("markExecuting / completeTask / failTask", () => {
     const record = await store.completeTask({ taskId: TASK_ID, result });
     expect(record.status).toBe("completed");
     expect(record.result).toEqual(result);
+  });
+
+  it("completeTask updates the winner's rolling MAPE rollup", async () => {
+    await store.markExecuting(TASK_ID);
+
+    const completedAt = new Date("2026-05-20T12:00:00Z");
+    await store.completeTask({
+      taskId: TASK_ID,
+      result: makeResult("gcp-gemini"),
+      now: completedAt,
+    });
+
+    const rollup = await store.getAgentMapeRollup("gcp-gemini");
+    expect(rollup).toMatchObject({
+      agent_id: "gcp-gemini",
+      updated_at: completedAt.toISOString(),
+      settled_task_count: 1,
+      last_task_id: TASK_ID,
+      last_bid_usd: 0.02,
+    });
+    expect(rollup?.last_actual_usd).toBeCloseTo(0.014625);
+    expect(rollup?.last_signed_percentage_error).toBeCloseTo(-0.26875);
+    expect(rollup?.last_absolute_percentage_error).toBeCloseTo(0.26875);
+    expect(rollup?.mape).toBeCloseTo(0.26875);
+    expect(rollup?.mean_signed_percentage_error).toBeCloseTo(-0.26875);
+  });
+
+  it("completeTask rolls MAPE forward across multiple settled tasks", async () => {
+    await store.markExecuting(TASK_ID);
+    await store.completeTask({ taskId: TASK_ID, result: makeResult("gcp-gemini") });
+
+    const secondTaskId = "task-test-2";
+    await store.createTask({ taskId: secondTaskId, spec: SPEC });
+    await store.recordBidResponse({
+      taskId: secondTaskId,
+      response: makeBid("gcp-gemini", 0.01, secondTaskId),
+      pricingSnapshot: PRICING,
+    });
+    await store.awardTask({
+      taskId: secondTaskId,
+      winnerAgentId: "gcp-gemini",
+      auctionPriceUsd: 0.02,
+      winningBidUsd: 0.01,
+    });
+    await store.markExecuting(secondTaskId);
+    await store.completeTask({
+      taskId: secondTaskId,
+      result: makeResult("gcp-gemini", secondTaskId),
+    });
+
+    const rollup = await store.getAgentMapeRollup("gcp-gemini");
+    expect(rollup?.settled_task_count).toBe(2);
+    expect(rollup?.mape).toBeCloseTo((0.26875 + 0.4625) / 2);
+    expect(rollup?.mean_signed_percentage_error).toBeCloseTo((-0.26875 + 0.4625) / 2);
+    expect(rollup?.last_task_id).toBe(secondTaskId);
   });
 
   it("completeTask rejects directly from awarded (must mark executing first)", async () => {

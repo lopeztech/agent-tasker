@@ -4,7 +4,7 @@ import {
   type DocumentReference,
   type Transaction,
 } from "@google-cloud/firestore";
-import { isNoBid, type TaskId, type TaskStatus } from "@agent-tasker/protocol";
+import { isNoBid, type AgentId, type TaskId, type TaskStatus } from "@agent-tasker/protocol";
 import {
   InvalidTransitionError,
   TaskAlreadyExistsError,
@@ -19,7 +19,15 @@ import type {
   LedgerStore,
   RecordBidResponseInput,
 } from "./store.js";
-import { BidRecordSchema, TaskRecordSchema, type BidRecord, type TaskRecord } from "./types.js";
+import { applyBidAccuracySample, computeBidAccuracySample } from "./mape.js";
+import {
+  AgentMapeRollupSchema,
+  BidRecordSchema,
+  TaskRecordSchema,
+  type AgentMapeRollup,
+  type BidRecord,
+  type TaskRecord,
+} from "./types.js";
 
 // Production-backed ledger store. Schema validation on read defends against
 // drift between deployed code and historical documents — any field rename
@@ -27,9 +35,11 @@ import { BidRecordSchema, TaskRecordSchema, type BidRecord, type TaskRecord } fr
 // silent undefined downstream.
 export class FirestoreLedgerStore implements LedgerStore {
   private readonly tasksCollection: CollectionReference;
+  private readonly mapeRollupsCollection: CollectionReference;
 
   constructor(private readonly firestore: Firestore) {
     this.tasksCollection = firestore.collection("tasks");
+    this.mapeRollupsCollection = firestore.collection("agent_mape_rollups");
   }
 
   async createTask(input: CreateTaskInput): Promise<TaskRecord> {
@@ -85,6 +95,12 @@ export class FirestoreLedgerStore implements LedgerStore {
   async listBids(taskId: TaskId): Promise<BidRecord[]> {
     const snap = await this.taskRef(taskId).collection("bids").orderBy("timestamp", "asc").get();
     return snap.docs.map((d) => BidRecordSchema.parse(d.data()));
+  }
+
+  async getAgentMapeRollup(agentId: AgentId): Promise<AgentMapeRollup | null> {
+    const snap = await this.mapeRollupRef(agentId).get();
+    if (!snap.exists) return null;
+    return AgentMapeRollupSchema.parse(snap.data());
   }
 
   async awardTask(input: AwardTaskInput): Promise<TaskRecord> {
@@ -145,6 +161,7 @@ export class FirestoreLedgerStore implements LedgerStore {
         updated_at: nowIso(input.now),
         result: input.result,
       };
+      await this.writeMapeRollup(tx, next);
       tx.set(ref, stripUndefined(next));
       return next;
     });
@@ -169,6 +186,39 @@ export class FirestoreLedgerStore implements LedgerStore {
 
   private taskRef(taskId: TaskId): DocumentReference {
     return this.tasksCollection.doc(taskId);
+  }
+
+  private mapeRollupRef(agentId: AgentId): DocumentReference {
+    return this.mapeRollupsCollection.doc(agentId);
+  }
+
+  private async writeMapeRollup(tx: Transaction, task: TaskRecord): Promise<void> {
+    if (!task.winner_agent_id || !task.result) return;
+
+    const bidSnap = await tx.get(
+      this.taskRef(task.task_id).collection("bids").doc(task.winner_agent_id),
+    );
+    if (!bidSnap.exists) return;
+    const bidRecord = BidRecordSchema.parse(bidSnap.data());
+    if (isNoBid(bidRecord.response)) return;
+
+    const sample = computeBidAccuracySample(bidRecord.response, task.result);
+    if (!sample) return;
+
+    const rollupRef = this.mapeRollupRef(task.winner_agent_id);
+    const previousSnap = await tx.get(rollupRef);
+    const previous = previousSnap.exists ? AgentMapeRollupSchema.parse(previousSnap.data()) : null;
+    tx.set(
+      rollupRef,
+      stripUndefined(
+        applyBidAccuracySample(previous, {
+          agentId: task.winner_agent_id,
+          taskId: task.task_id,
+          updatedAt: task.updated_at,
+          sample,
+        }),
+      ),
+    );
   }
 
   private async readTask(
