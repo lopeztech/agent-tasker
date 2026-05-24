@@ -67,6 +67,9 @@ export interface HttpAuctionRunnerOptions {
   // never throws past `start()` — every failure path is reflected in the
   // ledger.
   onError?: (taskId: TaskId, err: unknown) => void;
+  // Emits one event per coordinator→agent request so cross-cloud egress can
+  // be tracked by logs-based metrics and smoke-tested without live cloud IO.
+  egressRecorder?: EgressRecorder;
 }
 
 const DEFAULT_BID_TIMEOUT_MS = 5_000;
@@ -74,6 +77,9 @@ const DEFAULT_BID_INITIAL_WAIT_MS = 2_000;
 const DEFAULT_BID_EXTENSION_MS = 1_000;
 const DEFAULT_EXECUTE_TIMEOUT_MS = 60_000;
 export const EXECUTION_OVERRUN_MULTIPLIER = 10;
+const DEFAULT_AGENT_EGRESS_RECORDER: EgressRecorder = (event) => {
+  console.log(JSON.stringify({ event: "coordinator.agent_egress_bytes", ...event }));
+};
 
 export class HttpAuctionRunner implements AuctionRunner {
   private readonly settlements = new Map<TaskId, Promise<void>>();
@@ -205,6 +211,14 @@ export class HttpAuctionRunner implements AuctionRunner {
             taskId,
             phase: "bid",
           });
+          this.recordAgentEgress({
+            taskId,
+            agentId: agent.agentId,
+            phase: "bid",
+            url: `${agent.baseUrl}/bid`,
+            body,
+            bearerToken: token,
+          });
           const res = await fetchImpl(`${agent.baseUrl}/bid`, {
             method: "POST",
             headers: {
@@ -264,23 +278,112 @@ export class HttpAuctionRunner implements AuctionRunner {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
+    const requestBody = JSON.stringify({ task_id: taskId, spec });
     try {
+      this.recordAgentEgress({
+        taskId,
+        agentId,
+        phase: "execute",
+        url: `${agent.baseUrl}/execute`,
+        body: requestBody,
+        bearerToken: token,
+      });
       res = await fetchImpl(`${agent.baseUrl}/execute`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ task_id: taskId, spec }),
+        body: requestBody,
         signal: controller.signal,
       });
     } finally {
       clearTimeout(timer);
     }
     if (!res.ok) throw new Error(`execute returned ${res.status}`);
-    const body = (await res.json()) as unknown;
-    return ResultSchema.parse(body);
+    const responseBody = (await res.json()) as unknown;
+    return ResultSchema.parse(responseBody);
   }
+
+  private recordAgentEgress({
+    taskId,
+    agentId,
+    phase,
+    url,
+    body,
+    bearerToken,
+  }: {
+    taskId: TaskId;
+    agentId: AgentId;
+    phase: JwtPhase;
+    url: string;
+    body: string;
+    bearerToken: string;
+  }): void {
+    const target = new URL(url);
+    const cloudLeg = cloudLegForAgent(agentId);
+    const event: AgentEgressEvent = {
+      task_id: taskId,
+      agent_id: agentId,
+      phase,
+      cloud_leg: cloudLeg,
+      cross_cloud_billable: cloudLeg !== "gcp",
+      egress_class: cloudLeg === "gcp" ? "same_cloud" : "cross_cloud",
+      bytes_out: estimateHttpRequestBytes({
+        method: "POST",
+        path: target.pathname,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${bearerToken}`,
+        },
+        body,
+      }),
+    };
+    (this.opts.egressRecorder ?? DEFAULT_AGENT_EGRESS_RECORDER)(event);
+  }
+}
+
+export type AgentCloudLeg = "aws" | "azure" | "gcp";
+
+export interface AgentEgressEvent {
+  task_id: TaskId;
+  agent_id: AgentId;
+  phase: JwtPhase;
+  cloud_leg: AgentCloudLeg;
+  cross_cloud_billable: boolean;
+  egress_class: "cross_cloud" | "same_cloud";
+  bytes_out: number;
+}
+
+export type EgressRecorder = (event: AgentEgressEvent) => void;
+
+export function cloudLegForAgent(agentId: AgentId): AgentCloudLeg {
+  if (agentId === "aws-nova") return "aws";
+  if (agentId === "azure-gpt") return "azure";
+  return "gcp";
+}
+
+export function estimateHttpRequestBytes({
+  method,
+  path,
+  headers,
+  body,
+}: {
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: string;
+}): number {
+  const requestLineBytes = byteLength(`${method} ${path} HTTP/1.1\r\n`);
+  const headerBytes = Object.entries(headers).reduce(
+    (total, [name, value]) => total + byteLength(`${name}: ${value}\r\n`),
+    0,
+  );
+  return requestLineBytes + headerBytes + byteLength("\r\n") + byteLength(body);
+}
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }
 
 export function computeActualUsdFromBidPrices(bid: Bid, result: Result): number {

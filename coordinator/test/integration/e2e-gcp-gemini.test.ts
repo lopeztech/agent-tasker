@@ -92,6 +92,7 @@ beforeAll(async () => {
     agents: [{ agentId: "gcp-gemini", baseUrl: agentUrl }],
     tokenSigner,
     pricingSnapshot: PRICING_SNAPSHOT,
+    egressRecorder: () => {},
   });
   coordinatorApp = createCoordinatorApp({ store, runner });
 });
