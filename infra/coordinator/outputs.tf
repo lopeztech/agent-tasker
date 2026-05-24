@@ -42,3 +42,8 @@ output "pricing_refresh_runtime_service_account_email" {
   description = "Pricing-refresh function runtime SA. #38 adds roles/billing.viewer to this principal so the Cloud Billing Catalog parser can fetch SKUs."
   value       = google_service_account.pricing_refresh_runtime.email
 }
+
+output "cross_cloud_egress_dashboard_id" {
+  description = "Cloud Monitoring dashboard that charts coordinator→agent bytes out by cloud leg, phase, and billable cross-cloud total."
+  value       = google_monitoring_dashboard.cross_cloud_egress.id
+}

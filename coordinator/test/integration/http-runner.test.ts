@@ -11,10 +11,13 @@ import type {
 } from "@agent-tasker/protocol";
 import { InMemoryLedgerStore } from "../../src/ledger/in-memory-store.js";
 import {
+  type AgentEgressEvent,
   type AgentAccuracyLookup,
   HttpAuctionRunner,
   type AgentEndpoint,
   type TaskTokenSigner,
+  cloudLegForAgent,
+  estimateHttpRequestBytes,
 } from "../../src/auction/http-runner.js";
 import { startFakeAgent, type FakeAgent } from "./fake-agent.js";
 
@@ -75,6 +78,7 @@ async function startAuction(opts: {
   tieBreakRandom?: () => number;
   bidTimeoutMs?: number;
   spec?: TaskSpec;
+  egressRecorder?: (event: AgentEgressEvent) => void;
 }): Promise<HttpAuctionRunner> {
   await store.createTask({
     taskId: opts.taskId,
@@ -88,6 +92,7 @@ async function startAuction(opts: {
     ...(opts.accuracyByAgent !== undefined ? { accuracyByAgent: opts.accuracyByAgent } : {}),
     ...(opts.tieBreakRandom !== undefined ? { tieBreakRandom: opts.tieBreakRandom } : {}),
     ...(opts.bidTimeoutMs !== undefined ? { bidTimeoutMs: opts.bidTimeoutMs } : {}),
+    egressRecorder: opts.egressRecorder ?? (() => {}),
   });
   runner.start(opts.taskId);
   await runner.settle(opts.taskId);
@@ -474,5 +479,94 @@ describe("HttpAuctionRunner", () => {
     expect(gemini.executeCalls).toBe(1);
     expect(nova.executeCalls).toBe(1);
     expect(azure.executeCalls).toBe(0);
+  });
+
+  it("records per-agent request egress for cross-cloud smoke tests", async () => {
+    const taskId = "task-egress-smoke";
+    const egressEvents: AgentEgressEvent[] = [];
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (req) => bidFor("gcp-gemini", 0.02, req.task_id),
+      onExecute: (req) => ({
+        task_id: req.task_id,
+        agent_id: "gcp-gemini",
+        output: "gemini did it",
+        actual_usage: { input_tokens: 4000, output_tokens: 1000 },
+      }),
+    });
+    const nova = await startFakeAgent({
+      agentId: "aws-nova",
+      onBid: (req) => bidFor("aws-nova", 0.04, req.task_id),
+    });
+    const azure = await startFakeAgent({
+      agentId: "azure-gpt",
+      onBid: (req) => bidFor("azure-gpt", 0.06, req.task_id),
+    });
+    agents.push(gemini, nova, azure);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        { agentId: "aws-nova", baseUrl: nova.url },
+        { agentId: "azure-gpt", baseUrl: azure.url },
+      ],
+      egressRecorder: (event) => egressEvents.push(event),
+    });
+
+    expect(egressEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          task_id: taskId,
+          agent_id: "gcp-gemini",
+          phase: "bid",
+          cloud_leg: "gcp",
+          cross_cloud_billable: false,
+        }),
+        expect.objectContaining({
+          task_id: taskId,
+          agent_id: "aws-nova",
+          phase: "bid",
+          cloud_leg: "aws",
+          cross_cloud_billable: true,
+        }),
+        expect.objectContaining({
+          task_id: taskId,
+          agent_id: "azure-gpt",
+          phase: "bid",
+          cloud_leg: "azure",
+          cross_cloud_billable: true,
+        }),
+        expect.objectContaining({
+          task_id: taskId,
+          agent_id: "gcp-gemini",
+          phase: "execute",
+          cloud_leg: "gcp",
+          cross_cloud_billable: false,
+        }),
+      ]),
+    );
+    expect(egressEvents.every((event) => event.bytes_out > 0)).toBe(true);
+  });
+
+  it("estimates request bytes with UTF-8 body and header length", () => {
+    const bytes = estimateHttpRequestBytes({
+      method: "POST",
+      path: "/bid",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer token",
+      },
+      body: JSON.stringify({ prompt: "hello µ" }),
+    });
+
+    expect(bytes).toBeGreaterThan(JSON.stringify({ prompt: "hello µ" }).length);
+  });
+
+  it("maps agent ids to cloud legs used by the egress dashboard", () => {
+    expect(cloudLegForAgent("gcp-gemini")).toBe("gcp");
+    expect(cloudLegForAgent("gcp-orchestrator")).toBe("gcp");
+    expect(cloudLegForAgent("aws-nova")).toBe("aws");
+    expect(cloudLegForAgent("azure-gpt")).toBe("azure");
   });
 });
