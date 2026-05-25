@@ -98,6 +98,10 @@ resource "google_cloud_run_v2_service" "coordinator" {
         value = var.otel_exporter_otlp_endpoint == null ? "none" : "otlp"
       }
       env {
+        name  = "OTEL_METRICS_EXPORTER"
+        value = var.otel_exporter_otlp_endpoint == null ? "none" : "otlp"
+      }
+      env {
         name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
         value = coalesce(var.otel_exporter_otlp_endpoint, "")
       }
