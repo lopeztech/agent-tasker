@@ -1,5 +1,5 @@
 import { metrics, type Counter, type Histogram, type UpDownCounter } from "@opentelemetry/api";
-import type { AgentId, Tier } from "@agent-tasker/protocol";
+import { isNoBid, type AgentId, type BidResponse, type Tier } from "@agent-tasker/protocol";
 import type { BidAccuracySample } from "../ledger/mape.js";
 
 interface MarketMetricInstruments {
@@ -9,6 +9,8 @@ interface MarketMetricInstruments {
   bidAbsolutePercentageErrorSum: Counter;
   bidSignedPercentageErrorSum: UpDownCounter;
   bidAbsolutePercentageError: Histogram;
+  agentBidLatencyMs: Histogram;
+  bidRoundLatencyMs: Histogram;
 }
 
 let instruments: MarketMetricInstruments | undefined;
@@ -23,6 +25,19 @@ export interface AgentBidAccuracyMetric {
   agentId: AgentId;
   tier: Tier;
   sample: BidAccuracySample;
+}
+
+export interface AgentBidLatencyMetric {
+  agentId: AgentId;
+  response: BidResponse;
+  durationMs: number;
+}
+
+export interface BidRoundLatencyMetric {
+  durationMs: number;
+  configuredAgentCount: number;
+  responseCount: number;
+  bidCount: number;
 }
 
 export function recordBidDeltas(deltas: readonly AgentTierMetricDelta[]): void {
@@ -51,6 +66,22 @@ export function recordBidAccuracySample(metric: AgentBidAccuracyMetric): void {
   bidAbsolutePercentageError.record(metric.sample.absolutePercentageError, attributes);
   bidAbsolutePercentageErrorSum.add(metric.sample.absolutePercentageError, attributes);
   bidSignedPercentageErrorSum.add(metric.sample.signedPercentageError, attributes);
+}
+
+export function recordAgentBidLatency(metric: AgentBidLatencyMetric): void {
+  getInstruments().agentBidLatencyMs.record(metric.durationMs, {
+    agent_id: metric.agentId,
+    response_kind: isNoBid(metric.response) ? "no_bid" : "bid",
+    ...(isNoBid(metric.response) ? { no_bid_reason: metric.response.reason } : {}),
+  });
+}
+
+export function recordBidRoundLatency(metric: BidRoundLatencyMetric): void {
+  getInstruments().bidRoundLatencyMs.record(metric.durationMs, {
+    configured_agent_count: metric.configuredAgentCount,
+    response_count: metric.responseCount,
+    bid_count: metric.bidCount,
+  });
 }
 
 export function recordWin(agentId: AgentId, tier: Tier): void {
@@ -99,6 +130,14 @@ function getInstruments(): MarketMetricInstruments {
         unit: "1",
       },
     ),
+    agentBidLatencyMs: meter.createHistogram("agent_tasker_agent_bid_latency_ms", {
+      description: "Coordinator-observed latency for each agent /bid request.",
+      unit: "ms",
+    }),
+    bidRoundLatencyMs: meter.createHistogram("agent_tasker_bid_round_latency_ms", {
+      description: "Coordinator-observed latency for the full adaptive bid collection window.",
+      unit: "ms",
+    }),
   };
   return instruments;
 }

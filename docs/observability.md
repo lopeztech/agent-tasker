@@ -27,3 +27,4 @@ Import dashboard JSON from `docs/grafana/dashboards/` into Grafana Cloud:
 
 - `agent-win-rate.json` tracks bid counts, settled wins, and win rate per agent/tier from the coordinator OTLP metrics `agent_tasker_agent_bids` and `agent_tasker_agent_wins`.
 - `agent-mape-drift.json` tracks MAPE, p95 absolute percentage error, and signed bid drift from coordinator OTLP metrics emitted when winning tasks settle.
+- `bid-latency.json` tracks per-agent `/bid` latency and full adaptive bid-round latency p50/p95/p99.

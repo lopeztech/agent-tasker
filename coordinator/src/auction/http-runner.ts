@@ -15,6 +15,7 @@ import {
 } from "@agent-tasker/protocol";
 import { SpanStatusCode, trace, type Attributes, type Span } from "@opentelemetry/api";
 import type { LedgerStore } from "../ledger/store.js";
+import { recordAgentBidLatency, recordBidRoundLatency } from "../observability/market-metrics.js";
 import type { AuctionRunner } from "./runner.js";
 
 // Minimal real AuctionRunner that drives `bidding → awarded → executing →
@@ -231,13 +232,14 @@ export class HttpAuctionRunner implements AuctionRunner {
     const pending = this.opts.agents.map((agent) => {
       const controller = new AbortController();
       const promise = (async (): Promise<BidResponse> => {
+        const startedAt = Date.now();
         try {
           const token = await this.opts.tokenSigner.sign({
             agentId: agent.agentId,
             taskId,
             phase: "bid",
           });
-          return await withSpan(
+          const response = await withSpan(
             "coordinator.agent.bid",
             { task_id: taskId, agent_id: agent.agentId, phase: "bid" },
             async (span) => {
@@ -275,9 +277,21 @@ export class HttpAuctionRunner implements AuctionRunner {
               return parsed.data;
             },
           );
+          recordAgentBidLatency({
+            agentId: agent.agentId,
+            response,
+            durationMs: Date.now() - startedAt,
+          });
+          return response;
         } catch (err) {
           const reason = err instanceof Error && err.name === "AbortError" ? "timeout" : "error";
-          return syntheticNoBid(taskId, agent.agentId, reason);
+          const response = syntheticNoBid(taskId, agent.agentId, reason);
+          recordAgentBidLatency({
+            agentId: agent.agentId,
+            response,
+            durationMs: Date.now() - startedAt,
+          });
+          return response;
         }
       })();
       return {
@@ -288,13 +302,21 @@ export class HttpAuctionRunner implements AuctionRunner {
     });
 
     try {
-      return await collectBidResponsesAdaptive({
+      const startedAt = Date.now();
+      const responses = await collectBidResponsesAdaptive({
         taskId,
         pending,
         totalTimeoutMs: this.opts.bidTimeoutMs ?? DEFAULT_BID_TIMEOUT_MS,
         initialWaitMs: this.opts.bidInitialWaitMs ?? DEFAULT_BID_INITIAL_WAIT_MS,
         extensionMs: this.opts.bidExtensionMs ?? DEFAULT_BID_EXTENSION_MS,
       });
+      recordBidRoundLatency({
+        durationMs: Date.now() - startedAt,
+        configuredAgentCount: pending.length,
+        responseCount: responses.length,
+        bidCount: responses.filter((response) => !isNoBid(response)).length,
+      });
+      return responses;
     } finally {
       for (const entry of pending) entry.abort();
     }
