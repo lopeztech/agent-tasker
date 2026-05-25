@@ -99,6 +99,22 @@ resource "google_cloud_run_v2_service" "agent" {
         name  = "JWKS_URL"
         value = var.jwks_url
       }
+      env {
+        name  = "OTEL_SERVICE_NAME"
+        value = "agent-tasker-gcp-gemini"
+      }
+      env {
+        name  = "OTEL_TRACES_EXPORTER"
+        value = var.otel_exporter_otlp_endpoint == null ? "none" : "otlp"
+      }
+      env {
+        name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+        value = coalesce(var.otel_exporter_otlp_endpoint, "")
+      }
+      env {
+        name  = "OTEL_EXPORTER_OTLP_HEADERS"
+        value = coalesce(var.otel_exporter_otlp_headers, "")
+      }
     }
   }
 

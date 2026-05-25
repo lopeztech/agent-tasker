@@ -85,6 +85,19 @@ variable "coordinator_delete_protection" {
   default     = false
 }
 
+variable "otel_exporter_otlp_endpoint" {
+  description = "Optional Grafana Cloud OTLP endpoint (for example https://otlp-gateway-prod-us-central-0.grafana.net/otlp). When null, Cloud Run sets OTEL_TRACES_EXPORTER=none so local/dev deploys do not emit traces."
+  type        = string
+  default     = null
+}
+
+variable "otel_exporter_otlp_headers" {
+  description = "Optional OTLP headers for Grafana Cloud, usually Authorization=Basic <base64(instance_id:token)>. Stored in Terraform state; prefer environment-specific encrypted state."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
 variable "pricing_refresh_schedule" {
   description = "Cron expression (Etc/UTC) for the daily pricing-refresh job. Default 04:00 UTC — overnight in the Americas, mid-morning in EU, low coordinator traffic everywhere."
   type        = string
