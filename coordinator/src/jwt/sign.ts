@@ -20,6 +20,13 @@ export interface SignTaskTokenArgs {
   now?: () => Date;
 }
 
+export interface SignWebhookTokenArgs {
+  taskId: TaskId;
+  callbackUrl: string;
+  ttlSeconds?: number;
+  now?: () => Date;
+}
+
 // Mint a single-use, single-phase task token. Each call to `/announce`,
 // `/award`, `/execute`, `/reject` should mint a fresh token; tokens are
 // scoped to one (task, agent, phase) tuple.
@@ -40,6 +47,28 @@ export async function signTaskToken(
     .setIssuer(COORDINATOR_ISSUER)
     .setSubject(COORDINATOR_ISSUER)
     .setAudience(args.agentId)
+    .setIssuedAt(issuedAt)
+    .setExpirationTime(issuedAt + ttl)
+    .sign(privateKey);
+}
+
+export async function signWebhookToken(
+  keyProvider: KeyProvider,
+  args: SignWebhookTokenArgs,
+): Promise<string> {
+  const key = await keyProvider.getActiveKey();
+  const privateKey = await importPKCS8(key.privateKeyPem, "RS256");
+  const issuedAt = Math.floor((args.now?.() ?? new Date()).getTime() / 1000);
+  const ttl = args.ttlSeconds ?? TOKEN_TTL_SECONDS;
+
+  return new SignJWT({
+    task_id: args.taskId,
+    event: "task.completed",
+  })
+    .setProtectedHeader({ alg: "RS256", kid: key.kid, typ: "JWT" })
+    .setIssuer(COORDINATOR_ISSUER)
+    .setSubject(COORDINATOR_ISSUER)
+    .setAudience(args.callbackUrl)
     .setIssuedAt(issuedAt)
     .setExpirationTime(issuedAt + ttl)
     .sign(privateKey);
