@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@agent-tasker/agent": "workspace:*",
-    "@agent-tasker/agent-gcp-gemini": "workspace:*"
+    "@agent-tasker/agent-gcp-gemini": "workspace:*",
+    "@agent-tasker/agent-gcp-orchestrator": "workspace:*"
   }
 }
