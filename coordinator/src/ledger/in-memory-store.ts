@@ -28,8 +28,10 @@ import {
   applyWinRateWinUpdate,
 } from "./win-rates.js";
 import {
+  recordBidAccuracySample,
   recordBidDeltas,
   recordWin,
+  type AgentBidAccuracyMetric,
   type AgentTierMetricDelta,
 } from "../observability/market-metrics.js";
 
@@ -179,9 +181,13 @@ export class InMemoryLedgerStore implements LedgerStore {
       result: input.result,
     };
     this.tasks.set(input.taskId, next);
-    this.writeMapeRollup(next, input.result);
-    const winMetric = this.writeWinRateWinRollup(next);
-    if (winMetric) recordWin(winMetric.agentId, winMetric.tier);
+    const settlementMetrics = this.writeSettlementRollups(next, input.result);
+    if (settlementMetrics?.win) {
+      recordWin(settlementMetrics.win.agentId, settlementMetrics.win.tier);
+    }
+    if (settlementMetrics?.accuracy) {
+      recordBidAccuracySample(settlementMetrics.accuracy);
+    }
     return clone(next);
   }
 
@@ -206,13 +212,16 @@ export class InMemoryLedgerStore implements LedgerStore {
     return clone(next);
   }
 
-  private writeMapeRollup(task: TaskRecord, result: TaskRecord["result"]): void {
-    if (!task.winner_agent_id || !result) return;
+  private writeMapeRollup(
+    task: TaskRecord,
+    result: TaskRecord["result"],
+  ): AgentBidAccuracyMetric | undefined {
+    if (!task.winner_agent_id || !result) return undefined;
     const bidRecord = this.bids.get(bidKey(task.task_id, task.winner_agent_id));
-    if (!bidRecord || isNoBid(bidRecord.response)) return;
+    if (!bidRecord || isNoBid(bidRecord.response)) return undefined;
 
     const sample = computeBidAccuracySample(bidRecord.response, result);
-    if (!sample) return;
+    if (!sample) return undefined;
 
     const previous = this.mapeRollups.get(task.winner_agent_id) ?? null;
     this.mapeRollups.set(
@@ -224,6 +233,22 @@ export class InMemoryLedgerStore implements LedgerStore {
         sample,
       }),
     );
+    return {
+      agentId: bidRecord.response.agent_id,
+      tier: bidRecord.response.tier,
+      sample,
+    };
+  }
+
+  private writeSettlementRollups(
+    task: TaskRecord,
+    result: TaskRecord["result"],
+  ): SettlementMetricDeltas | undefined {
+    const accuracy = this.writeMapeRollup(task, result);
+    const win = this.writeWinRateWinRollup(task);
+    if (!win) return undefined;
+    if (!accuracy) return { win };
+    return { win, accuracy };
   }
 
   private writeDeclineRollup(previous: BidRecord | undefined, next: BidRecord): void {
@@ -326,4 +351,9 @@ function bidMetricDeltas(
     });
   }
   return deltas;
+}
+
+interface SettlementMetricDeltas {
+  win: AgentTierMetricDelta;
+  accuracy?: AgentBidAccuracyMetric;
 }

@@ -39,8 +39,10 @@ import {
   applyWinRateWinUpdate,
 } from "./win-rates.js";
 import {
+  recordBidAccuracySample,
   recordBidDeltas,
   recordWin,
+  type AgentBidAccuracyMetric,
   type AgentTierMetricDelta,
 } from "../observability/market-metrics.js";
 
@@ -202,11 +204,16 @@ export class FirestoreLedgerStore implements LedgerStore {
         updated_at: nowIso(input.now),
         result: input.result,
       };
-      const winMetric = await this.writeSettlementRollups(tx, next);
+      const settlementMetrics = await this.writeSettlementRollups(tx, next);
       tx.set(ref, stripUndefined(next));
-      return { record: next, winMetric };
+      return { record: next, settlementMetrics };
     });
-    if (result.winMetric) recordWin(result.winMetric.agentId, result.winMetric.tier);
+    if (result.settlementMetrics?.win) {
+      recordWin(result.settlementMetrics.win.agentId, result.settlementMetrics.win.tier);
+    }
+    if (result.settlementMetrics?.accuracy) {
+      recordBidAccuracySample(result.settlementMetrics.accuracy);
+    }
     return result.record;
   }
 
@@ -302,7 +309,7 @@ export class FirestoreLedgerStore implements LedgerStore {
   private async writeSettlementRollups(
     tx: Transaction,
     task: TaskRecord,
-  ): Promise<AgentTierMetricDelta | undefined> {
+  ): Promise<SettlementMetricDeltas | undefined> {
     if (!task.winner_agent_id || !task.result) return undefined;
 
     const bidSnap = await tx.get(
@@ -318,6 +325,7 @@ export class FirestoreLedgerStore implements LedgerStore {
     const previousWinRateRollupSnap = await tx.get(winRateRollupRef);
 
     const sample = computeBidAccuracySample(bidRecord.response, task.result);
+    let accuracyMetric: AgentBidAccuracyMetric | undefined;
     if (sample) {
       const previousMapeRollup = previousMapeRollupSnap.exists
         ? AgentMapeRollupSchema.parse(previousMapeRollupSnap.data())
@@ -333,6 +341,11 @@ export class FirestoreLedgerStore implements LedgerStore {
           }),
         ),
       );
+      accuracyMetric = {
+        agentId: bidRecord.response.agent_id,
+        tier: bidRecord.response.tier,
+        sample,
+      };
     }
 
     const previousWinRateRollup = previousWinRateRollupSnap.exists
@@ -347,10 +360,15 @@ export class FirestoreLedgerStore implements LedgerStore {
         }),
       ),
     );
-    return {
+    const win = {
       agentId: bidRecord.response.agent_id,
       tier: bidRecord.response.tier,
       delta: 1,
+    };
+    if (!accuracyMetric) return { win };
+    return {
+      win,
+      accuracy: accuracyMetric,
     };
   }
 
@@ -409,6 +427,11 @@ function bidMetricDeltas(
 
 interface FirestoreError {
   code?: number;
+}
+
+interface SettlementMetricDeltas {
+  win: AgentTierMetricDelta;
+  accuracy?: AgentBidAccuracyMetric;
 }
 
 // gRPC code 6 = ALREADY_EXISTS — thrown by DocumentReference#create when the
