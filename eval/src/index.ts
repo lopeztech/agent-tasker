@@ -18,6 +18,27 @@ export interface EvalFixture {
   };
 }
 
+export interface EvalExpectedUsdRange {
+  min: number;
+  max: number;
+}
+
+export interface EvalMapeScore {
+  expected_usd_range: EvalExpectedUsdRange & {
+    midpoint: number;
+  };
+  winning_bid: {
+    scored_runs: number;
+    mape: number | null;
+    range_hit_rate: number | null;
+  };
+  auction_price: {
+    scored_runs: number;
+    mape: number | null;
+    range_hit_rate: number | null;
+  };
+}
+
 export interface EvalRunOptions {
   coordinatorUrl: string;
   fixture: EvalFixture;
@@ -48,6 +69,7 @@ export interface EvalSummary {
   winners: Partial<Record<AgentId, number>>;
   average_winning_bid_usd: number | null;
   average_auction_price_usd: number | null;
+  score: EvalMapeScore | null;
   results: EvalRunResult[];
 }
 
@@ -97,13 +119,19 @@ export async function runEval(options: EvalRunOptions): Promise<EvalSummary> {
   for (let i = 1; i <= options.runs; i += 1) {
     results.push(await runOnce(options, i));
   }
-  return summarizeResults(options.fixture.name, options.runs, results);
+  return summarizeResults(
+    options.fixture.name,
+    options.runs,
+    results,
+    options.fixture.expected_usd_range,
+  );
 }
 
 export function summarizeResults(
   fixtureName: string,
   runsRequested: number,
   results: EvalRunResult[],
+  expectedUsdRange?: EvalExpectedUsdRange,
 ): EvalSummary {
   const completedResults = results.filter((result) => result.status === "completed");
   const failedResults = results.filter((result) => result.status === "failed");
@@ -121,6 +149,7 @@ export function summarizeResults(
     winners,
     average_winning_bid_usd: averageDefined(completedResults.map((r) => r.winning_bid_usd)),
     average_auction_price_usd: averageDefined(completedResults.map((r) => r.auction_price_usd)),
+    score: expectedUsdRange ? scoreResults(completedResults, expectedUsdRange) : null,
     results,
   };
 }
@@ -187,6 +216,54 @@ function averageDefined(values: Array<number | undefined>): number | null {
   const defined = values.filter((value): value is number => value !== undefined);
   if (defined.length === 0) return null;
   return defined.reduce((sum, value) => sum + value, 0) / defined.length;
+}
+
+function scoreResults(
+  completedResults: EvalRunResult[],
+  expectedUsdRange: EvalExpectedUsdRange,
+): EvalMapeScore {
+  return {
+    expected_usd_range: {
+      ...expectedUsdRange,
+      midpoint: expectedMidpoint(expectedUsdRange),
+    },
+    winning_bid: scorePriceSeries(
+      completedResults.map((result) => result.winning_bid_usd),
+      expectedUsdRange,
+    ),
+    auction_price: scorePriceSeries(
+      completedResults.map((result) => result.auction_price_usd),
+      expectedUsdRange,
+    ),
+  };
+}
+
+function scorePriceSeries(
+  values: Array<number | undefined>,
+  expectedUsdRange: EvalExpectedUsdRange,
+): EvalMapeScore["winning_bid"] {
+  const defined = values.filter((value): value is number => value !== undefined);
+  const midpoint = expectedMidpoint(expectedUsdRange);
+  return {
+    scored_runs: defined.length,
+    mape:
+      defined.length > 0 && midpoint > 0 ? averageAbsolutePercentageError(defined, midpoint) : null,
+    range_hit_rate:
+      defined.length > 0
+        ? defined.filter((value) => value >= expectedUsdRange.min && value <= expectedUsdRange.max)
+            .length / defined.length
+        : null,
+  };
+}
+
+function averageAbsolutePercentageError(values: number[], expected: number): number {
+  return (
+    values.reduce((sum, value) => sum + Math.abs(value - expected) / expected, 0) / values.length
+  );
+}
+
+function expectedMidpoint(expectedUsdRange: EvalExpectedUsdRange): number {
+  return (expectedUsdRange.min + expectedUsdRange.max) / 2;
 }
 
 function normalizeBaseUrl(value: string): string {
