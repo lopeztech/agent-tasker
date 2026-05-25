@@ -1,7 +1,12 @@
 import { Hono } from "hono";
 import type { PricingEntry } from "@agent-tasker/protocol";
-import { AnnounceRequestSchema, ExecuteRequestSchema } from "@agent-tasker/protocol";
-import { getTokenClaims, requireTaskToken, type TaskTokenVerifier } from "@agent-tasker/agent";
+import { AnnounceRequestSchema, ExecuteRequestSchema, isNoBid } from "@agent-tasker/protocol";
+import {
+  getTokenClaims,
+  requireTaskToken,
+  withAgentSpan,
+  type TaskTokenVerifier,
+} from "@agent-tasker/agent";
 import { handleBid } from "./bid/handler.js";
 import type { BidEstimator } from "./bid/estimator.js";
 import { handleExecute } from "./execute/handler.js";
@@ -35,10 +40,22 @@ export function createApp(opts: CreateAppOptions) {
       );
     }
 
-    const result = await handleBid(parsed.data, {
-      estimator: opts.estimator,
-      pricing: opts.pricing,
-    });
+    const result = await withAgentSpan(
+      "agent.bid",
+      { task_id: parsed.data.task_id, agent_id: AGENT_ID, phase: "bid" },
+      async (span) => {
+        const bidResult = await handleBid(parsed.data, {
+          estimator: opts.estimator,
+          pricing: opts.pricing,
+        });
+        if (isNoBid(bidResult)) {
+          span.setAttribute("no_bid_reason", bidResult.reason);
+        } else {
+          span.setAttributes({ tier: bidResult.tier, bid_usd: bidResult.bid_usd });
+        }
+        return bidResult;
+      },
+    );
     return c.json(result);
   });
 
@@ -57,7 +74,18 @@ export function createApp(opts: CreateAppOptions) {
       );
     }
 
-    const result = await handleExecute(parsed.data, { client: opts.client });
+    const result = await withAgentSpan(
+      "agent.execute",
+      { task_id: parsed.data.task_id, agent_id: AGENT_ID, phase: "execute" },
+      async (span) => {
+        const executeResult = await handleExecute(parsed.data, { client: opts.client });
+        span.setAttributes({
+          input_tokens: executeResult.actual_usage.input_tokens,
+          output_tokens: executeResult.actual_usage.output_tokens,
+        });
+        return executeResult;
+      },
+    );
     return c.json(result);
   });
 
