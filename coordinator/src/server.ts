@@ -1,3 +1,4 @@
+import { startCoordinatorTelemetry } from "./observability/telemetry.js";
 import { serve } from "@hono/node-server";
 import { Firestore } from "@google-cloud/firestore";
 import { createApp } from "./api/app.js";
@@ -11,6 +12,7 @@ import { FirestoreLedgerStore } from "./ledger/firestore-store.js";
 // The real AuctionRunner (#47 + #52 + #53) replaces StubAuctionRunner
 // without changing this entrypoint — server.ts owns wiring, not policy.
 
+const telemetry = startCoordinatorTelemetry();
 const port = Number(process.env["PORT"] ?? 8080);
 const projectId = process.env["GCP_PROJECT_ID"];
 
@@ -27,4 +29,10 @@ const app = createApp({ store, runner });
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`coordinator listening on :${info.port} (project ${projectId})`);
+});
+
+process.once("SIGTERM", () => {
+  void telemetry?.shutdown().finally(() => {
+    process.exit(0);
+  });
 });

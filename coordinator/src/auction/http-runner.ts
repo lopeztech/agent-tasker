@@ -13,6 +13,7 @@ import {
   isNoBid,
   meetsMinTier,
 } from "@agent-tasker/protocol";
+import { SpanStatusCode, trace, type Attributes, type Span } from "@opentelemetry/api";
 import type { LedgerStore } from "../ledger/store.js";
 import type { AuctionRunner } from "./runner.js";
 
@@ -77,6 +78,7 @@ const DEFAULT_BID_INITIAL_WAIT_MS = 2_000;
 const DEFAULT_BID_EXTENSION_MS = 1_000;
 const DEFAULT_EXECUTE_TIMEOUT_MS = 60_000;
 export const EXECUTION_OVERRUN_MULTIPLIER = 10;
+const COORDINATOR_TRACER = trace.getTracer("agent-tasker-coordinator");
 const DEFAULT_AGENT_EGRESS_RECORDER: EgressRecorder = (event) => {
   console.log(JSON.stringify({ event: "coordinator.agent_egress_bytes", ...event }));
 };
@@ -101,6 +103,12 @@ export class HttpAuctionRunner implements AuctionRunner {
   }
 
   private async runAuction(taskId: TaskId): Promise<void> {
+    await withSpan("coordinator.auction", { task_id: taskId }, async () => {
+      await this.runAuctionInSpan(taskId);
+    });
+  }
+
+  private async runAuctionInSpan(taskId: TaskId): Promise<void> {
     const task = await this.opts.store.getTask(taskId);
     if (!task) {
       // POST /tasks just created this — if it's not here something is very
@@ -164,12 +172,30 @@ export class HttpAuctionRunner implements AuctionRunner {
         auctionPriceUsd: award.auctionPriceUsd,
         winningBidUsd: award.winningBidUsd,
       });
+      setActiveSpanAttributes({
+        task_id: taskId,
+        agent_id: award.winner.agent_id,
+        phase: "award",
+        tier: award.winner.tier,
+        bid_usd: award.winningBidUsd,
+        auction_price_usd: award.auctionPriceUsd,
+      });
 
       await this.opts.store.markExecuting(taskId);
 
       try {
-        const result = await this.execute(taskId, award.winner.agent_id, spec);
+        const result = await this.execute(taskId, award.winner, spec);
         enforceExecutionOverrunCap(award.winner, result);
+        const actualUsd = computeActualUsdFromBidPrices(award.winner, result);
+        setActiveSpanAttributes({
+          task_id: taskId,
+          agent_id: award.winner.agent_id,
+          phase: "execute",
+          tier: award.winner.tier,
+          bid_usd: award.winningBidUsd,
+          actual_usd: actualUsd,
+          mape: actualUsd > 0 ? Math.abs(award.winningBidUsd - actualUsd) / actualUsd : 0,
+        });
         await this.opts.store.completeTask({ taskId, result });
         return;
       } catch (err) {
@@ -211,37 +237,44 @@ export class HttpAuctionRunner implements AuctionRunner {
             taskId,
             phase: "bid",
           });
-          this.recordAgentEgress({
-            taskId,
-            agentId: agent.agentId,
-            phase: "bid",
-            url: `${agent.baseUrl}/bid`,
-            body,
-            bearerToken: token,
-          });
-          const res = await fetchImpl(`${agent.baseUrl}/bid`, {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              authorization: `Bearer ${token}`,
+          return await withSpan(
+            "coordinator.agent.bid",
+            { task_id: taskId, agent_id: agent.agentId, phase: "bid" },
+            async (span) => {
+              this.recordAgentEgress({
+                taskId,
+                agentId: agent.agentId,
+                phase: "bid",
+                url: `${agent.baseUrl}/bid`,
+                body,
+                bearerToken: token,
+              });
+              const res = await fetchImpl(`${agent.baseUrl}/bid`, {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  authorization: `Bearer ${token}`,
+                },
+                body,
+                signal: controller.signal,
+              });
+              if (!res.ok) {
+                return syntheticNoBid(taskId, agent.agentId, `agent returned ${res.status}`);
+              }
+              const responseBody = (await res.json()) as unknown;
+              const parsed = BidResponseSchema.safeParse(responseBody);
+              if (!parsed.success) {
+                return syntheticNoBid(taskId, agent.agentId, "malformed bid response");
+              }
+              // Defend against an agent claiming to be someone else.
+              const responseAgentId = "agent_id" in parsed.data ? parsed.data.agent_id : undefined;
+              if (responseAgentId !== agent.agentId) {
+                return syntheticNoBid(taskId, agent.agentId, "bid agent_id mismatch");
+              }
+              annotateBidSpan(span, parsed.data);
+              return parsed.data;
             },
-            body,
-            signal: controller.signal,
-          });
-          if (!res.ok) {
-            return syntheticNoBid(taskId, agent.agentId, `agent returned ${res.status}`);
-          }
-          const responseBody = (await res.json()) as unknown;
-          const parsed = BidResponseSchema.safeParse(responseBody);
-          if (!parsed.success) {
-            return syntheticNoBid(taskId, agent.agentId, "malformed bid response");
-          }
-          // Defend against an agent claiming to be someone else.
-          const responseAgentId = "agent_id" in parsed.data ? parsed.data.agent_id : undefined;
-          if (responseAgentId !== agent.agentId) {
-            return syntheticNoBid(taskId, agent.agentId, "bid agent_id mismatch");
-          }
-          return parsed.data;
+          );
         } catch (err) {
           const reason = err instanceof Error && err.name === "AbortError" ? "timeout" : "error";
           return syntheticNoBid(taskId, agent.agentId, reason);
@@ -267,7 +300,8 @@ export class HttpAuctionRunner implements AuctionRunner {
     }
   }
 
-  private async execute(taskId: TaskId, agentId: AgentId, spec: TaskSpec) {
+  private async execute(taskId: TaskId, winningBid: Bid, spec: TaskSpec) {
+    const agentId = winningBid.agent_id;
     const agent = this.opts.agents.find((a) => a.agentId === agentId);
     if (!agent) {
       throw new Error(`winner ${agentId} not in agent registry`);
@@ -280,29 +314,52 @@ export class HttpAuctionRunner implements AuctionRunner {
     let res: Response;
     const requestBody = JSON.stringify({ task_id: taskId, spec });
     try {
-      this.recordAgentEgress({
-        taskId,
-        agentId,
-        phase: "execute",
-        url: `${agent.baseUrl}/execute`,
-        body: requestBody,
-        bearerToken: token,
-      });
-      res = await fetchImpl(`${agent.baseUrl}/execute`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${token}`,
+      res = await withSpan(
+        "coordinator.agent.execute",
+        {
+          task_id: taskId,
+          agent_id: agentId,
+          phase: "execute",
+          tier: winningBid.tier,
+          bid_usd: winningBid.bid_usd,
         },
-        body: requestBody,
-        signal: controller.signal,
-      });
+        async (span) => {
+          this.recordAgentEgress({
+            taskId,
+            agentId,
+            phase: "execute",
+            url: `${agent.baseUrl}/execute`,
+            body: requestBody,
+            bearerToken: token,
+          });
+          const executeResponse = await fetchImpl(`${agent.baseUrl}/execute`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${token}`,
+            },
+            body: requestBody,
+            signal: controller.signal,
+          });
+          span.setAttribute("http.response.status_code", executeResponse.status);
+          return executeResponse;
+        },
+      );
     } finally {
       clearTimeout(timer);
     }
     if (!res.ok) throw new Error(`execute returned ${res.status}`);
     const responseBody = (await res.json()) as unknown;
-    return ResultSchema.parse(responseBody);
+    const result = ResultSchema.parse(responseBody);
+    setActiveSpanAttributes({
+      task_id: taskId,
+      agent_id: agentId,
+      phase: "execute",
+      tier: winningBid.tier,
+      bid_usd: winningBid.bid_usd,
+      actual_usd: computeActualUsdFromBidPrices(winningBid, result),
+    });
+    return result;
   }
 
   private recordAgentEgress({
@@ -572,4 +629,52 @@ function hasEnoughSettledTasks(accuracy: AgentAccuracy | undefined): boolean {
 function pickRandom<T>(items: readonly T[], random: RandomSource): T {
   const index = Math.min(Math.floor(random() * items.length), items.length - 1);
   return items[index]!;
+}
+
+async function withSpan<T>(
+  name: string,
+  attributes: Attributes,
+  fn: (span: Span) => Promise<T>,
+): Promise<T> {
+  return COORDINATOR_TRACER.startActiveSpan(name, { attributes }, async (span) => {
+    try {
+      const result = await fn(span);
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
+    } catch (err) {
+      if (err instanceof Error) {
+        span.recordException(err);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      } else {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+      }
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
+}
+
+function setActiveSpanAttributes(attributes: Attributes): void {
+  trace.getActiveSpan()?.setAttributes(attributes);
+}
+
+function annotateBidSpan(span: Span, response: BidResponse): void {
+  if (isNoBid(response)) {
+    span.setAttributes({
+      task_id: response.task_id,
+      agent_id: response.agent_id,
+      phase: "bid",
+      no_bid_reason: response.reason,
+    });
+    return;
+  }
+
+  span.setAttributes({
+    task_id: response.task_id,
+    agent_id: response.agent_id,
+    phase: "bid",
+    tier: response.tier,
+    bid_usd: response.bid_usd,
+  });
 }
