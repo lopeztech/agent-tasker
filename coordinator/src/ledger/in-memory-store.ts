@@ -27,6 +27,11 @@ import {
   applyWinRateBidUpdate,
   applyWinRateWinUpdate,
 } from "./win-rates.js";
+import {
+  recordBidDeltas,
+  recordWin,
+  type AgentTierMetricDelta,
+} from "../observability/market-metrics.js";
 
 // In-memory ledger backing — single-process, single-test usage. Maps are
 // keyed by taskId for tasks and by `${taskId}:${agent_id}` for bids.
@@ -83,6 +88,7 @@ export class InMemoryLedgerStore implements LedgerStore {
     this.bids.set(bidKey(input.taskId, input.response.agent_id), record);
     this.writeDeclineRollup(previous, record);
     this.writeWinRateBidRollup(previous, record);
+    recordBidDeltas(bidMetricDeltas(previous, record));
     return clone(record);
   }
 
@@ -174,7 +180,8 @@ export class InMemoryLedgerStore implements LedgerStore {
     };
     this.tasks.set(input.taskId, next);
     this.writeMapeRollup(next, input.result);
-    this.writeWinRateWinRollup(next);
+    const winMetric = this.writeWinRateWinRollup(next);
+    if (winMetric) recordWin(winMetric.agentId, winMetric.tier);
     return clone(next);
   }
 
@@ -257,10 +264,10 @@ export class InMemoryLedgerStore implements LedgerStore {
     );
   }
 
-  private writeWinRateWinRollup(task: TaskRecord): void {
-    if (!task.winner_agent_id) return;
+  private writeWinRateWinRollup(task: TaskRecord): AgentTierMetricDelta | undefined {
+    if (!task.winner_agent_id) return undefined;
     const bidRecord = this.bids.get(bidKey(task.task_id, task.winner_agent_id));
-    if (!bidRecord || isNoBid(bidRecord.response)) return;
+    if (!bidRecord || isNoBid(bidRecord.response)) return undefined;
 
     const previousRollup = this.winRateRollups.get(task.winner_agent_id) ?? null;
     this.winRateRollups.set(
@@ -270,6 +277,11 @@ export class InMemoryLedgerStore implements LedgerStore {
         updatedAt: task.updated_at,
       }),
     );
+    return {
+      agentId: bidRecord.response.agent_id,
+      tier: bidRecord.response.tier,
+      delta: 1,
+    };
   }
 
   private requireTask(taskId: TaskId): TaskRecord {
@@ -292,4 +304,26 @@ function nowIso(now?: Date): string {
 // available in Node 22 and faster than JSON round-trip.
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function bidMetricDeltas(
+  previousBid: BidRecord | undefined,
+  nextBid: BidRecord,
+): AgentTierMetricDelta[] {
+  const deltas: AgentTierMetricDelta[] = [];
+  if (previousBid && !isNoBid(previousBid.response)) {
+    deltas.push({
+      agentId: previousBid.response.agent_id,
+      tier: previousBid.response.tier,
+      delta: -1,
+    });
+  }
+  if (!isNoBid(nextBid.response)) {
+    deltas.push({
+      agentId: nextBid.response.agent_id,
+      tier: nextBid.response.tier,
+      delta: 1,
+    });
+  }
+  return deltas;
 }

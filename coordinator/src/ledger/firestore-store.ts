@@ -38,6 +38,11 @@ import {
   applyWinRateBidUpdate,
   applyWinRateWinUpdate,
 } from "./win-rates.js";
+import {
+  recordBidDeltas,
+  recordWin,
+  type AgentTierMetricDelta,
+} from "../observability/market-metrics.js";
 
 // Production-backed ledger store. Schema validation on read defends against
 // drift between deployed code and historical documents — any field rename
@@ -85,7 +90,7 @@ export class FirestoreLedgerStore implements LedgerStore {
     const taskRef = this.taskRef(input.taskId);
     const bidRef = taskRef.collection("bids").doc(input.response.agent_id);
 
-    return this.firestore.runTransaction(async (tx) => {
+    const result = await this.firestore.runTransaction(async (tx) => {
       const task = await this.readTask(tx, taskRef, input.taskId);
       if (task.status !== "bidding") {
         throw new InvalidTransitionError(input.taskId, task.status, "bidding");
@@ -107,8 +112,13 @@ export class FirestoreLedgerStore implements LedgerStore {
         : undefined;
       await this.writeBidResponseRollups(tx, previousBid, record);
       tx.set(bidRef, stripUndefined(record));
-      return record;
+      return {
+        record,
+        bidDeltas: bidMetricDeltas(previousBid, record),
+      };
     });
+    recordBidDeltas(result.bidDeltas);
+    return result.record;
   }
 
   async listBids(taskId: TaskId): Promise<BidRecord[]> {
@@ -176,14 +186,14 @@ export class FirestoreLedgerStore implements LedgerStore {
 
   async completeTask(input: CompleteTaskInput): Promise<TaskRecord> {
     const ref = this.taskRef(input.taskId);
-    return this.firestore.runTransaction(async (tx) => {
+    const result = await this.firestore.runTransaction(async (tx) => {
       const task = await this.readTask(tx, ref, input.taskId);
       if (
         task.status === "completed" &&
         task.result &&
         task.result.output === input.result.output
       ) {
-        return task;
+        return { record: task };
       }
       this.requireTransition(input.taskId, task.status, "completed");
       const next: TaskRecord = {
@@ -192,10 +202,12 @@ export class FirestoreLedgerStore implements LedgerStore {
         updated_at: nowIso(input.now),
         result: input.result,
       };
-      await this.writeSettlementRollups(tx, next);
+      const winMetric = await this.writeSettlementRollups(tx, next);
       tx.set(ref, stripUndefined(next));
-      return next;
+      return { record: next, winMetric };
     });
+    if (result.winMetric) recordWin(result.winMetric.agentId, result.winMetric.tier);
+    return result.record;
   }
 
   async failTask(input: FailTaskInput): Promise<TaskRecord> {
@@ -287,15 +299,18 @@ export class FirestoreLedgerStore implements LedgerStore {
     );
   }
 
-  private async writeSettlementRollups(tx: Transaction, task: TaskRecord): Promise<void> {
-    if (!task.winner_agent_id || !task.result) return;
+  private async writeSettlementRollups(
+    tx: Transaction,
+    task: TaskRecord,
+  ): Promise<AgentTierMetricDelta | undefined> {
+    if (!task.winner_agent_id || !task.result) return undefined;
 
     const bidSnap = await tx.get(
       this.taskRef(task.task_id).collection("bids").doc(task.winner_agent_id),
     );
-    if (!bidSnap.exists) return;
+    if (!bidSnap.exists) return undefined;
     const bidRecord = BidRecordSchema.parse(bidSnap.data());
-    if (isNoBid(bidRecord.response)) return;
+    if (isNoBid(bidRecord.response)) return undefined;
 
     const mapeRollupRef = this.mapeRollupRef(task.winner_agent_id);
     const winRateRollupRef = this.winRateRollupRef(task.winner_agent_id);
@@ -332,6 +347,11 @@ export class FirestoreLedgerStore implements LedgerStore {
         }),
       ),
     );
+    return {
+      agentId: bidRecord.response.agent_id,
+      tier: bidRecord.response.tier,
+      delta: 1,
+    };
   }
 
   private async readTask(
@@ -363,6 +383,28 @@ function stripUndefined<T extends Record<string, unknown>>(value: T): Record<str
     if (v !== undefined) out[k] = v;
   }
   return out;
+}
+
+function bidMetricDeltas(
+  previousBid: BidRecord | undefined,
+  nextBid: BidRecord,
+): AgentTierMetricDelta[] {
+  const deltas: AgentTierMetricDelta[] = [];
+  if (previousBid && !isNoBid(previousBid.response)) {
+    deltas.push({
+      agentId: previousBid.response.agent_id,
+      tier: previousBid.response.tier,
+      delta: -1,
+    });
+  }
+  if (!isNoBid(nextBid.response)) {
+    deltas.push({
+      agentId: nextBid.response.agent_id,
+      tier: nextBid.response.tier,
+      delta: 1,
+    });
+  }
+  return deltas;
 }
 
 interface FirestoreError {

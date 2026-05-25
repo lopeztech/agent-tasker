@@ -1,6 +1,6 @@
 # Observability
 
-OpenTelemetry tracing is wired into the coordinator and agent runtimes. Terraform keeps export disabled by default so development deployments do not try to send spans to a local OTLP collector.
+OpenTelemetry tracing is wired into the coordinator and agent runtimes. The coordinator also exports market metrics for Grafana dashboards. Terraform keeps export disabled by default so development deployments do not try to send telemetry to a local OTLP collector.
 
 To enable Grafana Cloud traces for a stack, set both variables for that Terraform module:
 
@@ -15,7 +15,14 @@ When `otel_exporter_otlp_endpoint` is unset, Terraform sets `OTEL_TRACES_EXPORTE
 
 - `OTEL_SERVICE_NAME`
 - `OTEL_TRACES_EXPORTER=otlp`
+- `OTEL_METRICS_EXPORTER=otlp` on the coordinator
 - `OTEL_EXPORTER_OTLP_ENDPOINT`
 - `OTEL_EXPORTER_OTLP_HEADERS` when provided
 
 `otel_exporter_otlp_headers` is marked sensitive, but it is still stored in Terraform state. Keep state in encrypted, access-controlled backends and rotate the Grafana token if state access changes.
+
+## Dashboards
+
+Import dashboard JSON from `docs/grafana/dashboards/` into Grafana Cloud:
+
+- `agent-win-rate.json` tracks bid counts, settled wins, and win rate per agent/tier from the coordinator OTLP metrics `agent_tasker_agent_bids` and `agent_tasker_agent_wins`.

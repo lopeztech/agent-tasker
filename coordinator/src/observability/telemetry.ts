@@ -1,5 +1,7 @@
 import { getNodeAutoInstrumentations } from "@opentelemetry/auto-instrumentations-node";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 
 export interface CoordinatorTelemetryOptions {
@@ -19,6 +21,15 @@ export function startCoordinatorTelemetry(
   const sdk = new NodeSDK({
     serviceName: env["OTEL_SERVICE_NAME"] ?? "agent-tasker-coordinator",
     ...(env["OTEL_TRACES_EXPORTER"] === "none" ? {} : { traceExporter: new OTLPTraceExporter() }),
+    ...(env["OTEL_METRICS_EXPORTER"] === "otlp"
+      ? {
+          metricReaders: [
+            new PeriodicExportingMetricReader({
+              exporter: new OTLPMetricExporter(),
+            }),
+          ],
+        }
+      : {}),
     instrumentations: [
       getNodeAutoInstrumentations({
         "@opentelemetry/instrumentation-fs": { enabled: false },
