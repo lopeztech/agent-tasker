@@ -77,6 +77,53 @@ describe("summarizeResults", () => {
       winners: { "gcp-gemini": 1 },
       average_winning_bid_usd: 0.02,
       average_auction_price_usd: 0.04,
+      score: null,
+    });
+  });
+
+  it("scores repeated stochastic runs against the fixture expected USD range", () => {
+    const summary = summarizeResults(
+      "fixture",
+      3,
+      [
+        {
+          run: 1,
+          task_id: "task-1",
+          status: "completed",
+          winner_agent_id: "gcp-gemini",
+          winning_bid_usd: 0.02,
+          auction_price_usd: 0.03,
+        },
+        {
+          run: 2,
+          task_id: "task-2",
+          status: "completed",
+          winner_agent_id: "gcp-gemini",
+          winning_bid_usd: 0.04,
+          auction_price_usd: 0.06,
+        },
+        {
+          run: 3,
+          task_id: "task-3",
+          status: "failed",
+          failure_reason: "all agents declined",
+        },
+      ],
+      { min: 0.02, max: 0.04 },
+    );
+
+    expect(summary.score).toEqual({
+      expected_usd_range: { min: 0.02, max: 0.04, midpoint: 0.03 },
+      winning_bid: {
+        scored_runs: 2,
+        mape: expect.closeTo(1 / 3),
+        range_hit_rate: 1,
+      },
+      auction_price: {
+        scored_runs: 2,
+        mape: 0.5,
+        range_hit_rate: 0.5,
+      },
     });
   });
 });
@@ -125,6 +172,49 @@ describe("runEval", () => {
       winner_agent_id: "gcp-gemini",
       input_tokens: 10,
       output_tokens: 5,
+    });
+  });
+
+  it("includes MAPE scoring when the fixture declares an expected USD range", async () => {
+    let taskId = 0;
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      if (init?.method === "POST") {
+        taskId += 1;
+        return jsonResponse(202, {
+          task_id: `task-${taskId}`,
+          status_url: `http://coordinator.test/tasks/task-${taskId}`,
+        });
+      }
+      return jsonResponse(200, {
+        task_id: `task-${taskId}`,
+        status: "completed",
+        winner_agent_id: "gcp-gemini",
+        winning_bid_usd: taskId === 1 ? 0.02 : 0.04,
+        auction_price_usd: taskId === 1 ? 0.03 : 0.05,
+        result: {
+          actual_usage: { input_tokens: 10, output_tokens: 5 },
+        },
+      });
+    };
+
+    const summary = await runEval({
+      coordinatorUrl: "http://coordinator.test",
+      fixture: {
+        name: "summary",
+        expected_usd_range: { min: 0.02, max: 0.04 },
+        task: { prompt: "summarize this" },
+      },
+      runs: 2,
+      pollIntervalMs: 1,
+      timeoutMs: 1000,
+      fetchImpl,
+      wait: async () => {},
+    });
+
+    expect(summary.score?.winning_bid).toMatchObject({
+      scored_runs: 2,
+      mape: expect.closeTo(1 / 3),
+      range_hit_rate: 1,
     });
   });
 });
