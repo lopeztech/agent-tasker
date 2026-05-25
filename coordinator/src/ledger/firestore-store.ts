@@ -21,16 +21,19 @@ import type {
 } from "./store.js";
 import { applyDeclineRollupUpdate } from "./declines.js";
 import { applyBidAccuracySample, computeBidAccuracySample } from "./mape.js";
+import { buildResultRecord } from "./results.js";
 import {
   AgentDeclineRollupSchema,
   AgentMapeRollupSchema,
   AgentWinRateRollupSchema,
   BidRecordSchema,
+  ResultRecordSchema,
   TaskRecordSchema,
   type AgentDeclineRollup,
   type AgentMapeRollup,
   type AgentWinRateRollup,
   type BidRecord,
+  type ResultRecord,
   type TaskRecord,
 } from "./types.js";
 import {
@@ -128,6 +131,11 @@ export class FirestoreLedgerStore implements LedgerStore {
     return snap.docs.map((d) => BidRecordSchema.parse(d.data()));
   }
 
+  async listResults(taskId: TaskId): Promise<ResultRecord[]> {
+    const snap = await this.taskRef(taskId).collection("results").orderBy("timestamp", "asc").get();
+    return snap.docs.map((d) => ResultRecordSchema.parse(d.data()));
+  }
+
   async getAgentMapeRollup(agentId: AgentId): Promise<AgentMapeRollup | null> {
     const snap = await this.mapeRollupRef(agentId).get();
     if (!snap.exists) return null;
@@ -195,16 +203,25 @@ export class FirestoreLedgerStore implements LedgerStore {
         task.result &&
         task.result.output === input.result.output
       ) {
+        tx.set(
+          this.resultRef(input.taskId, task.result.agent_id),
+          stripUndefined(buildResultRecord(input.taskId, task.result, task.updated_at)),
+        );
         return { record: task };
       }
       this.requireTransition(input.taskId, task.status, "completed");
+      const completedAt = nowIso(input.now);
       const next: TaskRecord = {
         ...task,
         status: "completed",
-        updated_at: nowIso(input.now),
+        updated_at: completedAt,
         result: input.result,
       };
       const settlementMetrics = await this.writeSettlementRollups(tx, next);
+      tx.set(
+        this.resultRef(input.taskId, input.result.agent_id),
+        stripUndefined(buildResultRecord(input.taskId, input.result, completedAt)),
+      );
       tx.set(ref, stripUndefined(next));
       return { record: next, settlementMetrics };
     });
@@ -236,6 +253,10 @@ export class FirestoreLedgerStore implements LedgerStore {
 
   private taskRef(taskId: TaskId): DocumentReference {
     return this.tasksCollection.doc(taskId);
+  }
+
+  private resultRef(taskId: TaskId, agentId: AgentId): DocumentReference {
+    return this.taskRef(taskId).collection("results").doc(agentId);
   }
 
   private mapeRollupRef(agentId: AgentId): DocumentReference {

@@ -15,11 +15,13 @@ import type {
 } from "./store.js";
 import { applyDeclineRollupUpdate } from "./declines.js";
 import { applyBidAccuracySample, computeBidAccuracySample } from "./mape.js";
+import { buildResultRecord } from "./results.js";
 import type {
   AgentDeclineRollup,
   AgentMapeRollup,
   AgentWinRateRollup,
   BidRecord,
+  ResultRecord,
   TaskRecord,
 } from "./types.js";
 import {
@@ -43,6 +45,7 @@ import {
 export class InMemoryLedgerStore implements LedgerStore {
   private readonly tasks = new Map<string, TaskRecord>();
   private readonly bids = new Map<string, BidRecord>();
+  private readonly results = new Map<string, ResultRecord>();
   private readonly mapeRollups = new Map<AgentId, AgentMapeRollup>();
   private readonly declineRollups = new Map<AgentId, AgentDeclineRollup>();
   private readonly winRateRollups = new Map<AgentId, AgentWinRateRollup>();
@@ -98,6 +101,16 @@ export class InMemoryLedgerStore implements LedgerStore {
     const prefix = `${taskId}:`;
     const out: BidRecord[] = [];
     for (const [key, record] of this.bids) {
+      if (key.startsWith(prefix)) out.push(clone(record));
+    }
+    out.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    return out;
+  }
+
+  async listResults(taskId: TaskId): Promise<ResultRecord[]> {
+    const prefix = `${taskId}:`;
+    const out: ResultRecord[] = [];
+    for (const [key, record] of this.results) {
       if (key.startsWith(prefix)) out.push(clone(record));
     }
     out.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
@@ -167,6 +180,7 @@ export class InMemoryLedgerStore implements LedgerStore {
     const task = this.requireTask(input.taskId);
 
     if (task.status === "completed" && task.result && task.result.output === input.result.output) {
+      this.writeResultRecord(input.taskId, task.result, task.updated_at);
       return clone(task);
     }
 
@@ -174,13 +188,15 @@ export class InMemoryLedgerStore implements LedgerStore {
       throw new InvalidTransitionError(input.taskId, task.status, "completed");
     }
 
+    const completedAt = nowIso(input.now);
     const next: TaskRecord = {
       ...task,
       status: "completed",
-      updated_at: nowIso(input.now),
+      updated_at: completedAt,
       result: input.result,
     };
     this.tasks.set(input.taskId, next);
+    this.writeResultRecord(input.taskId, input.result, completedAt);
     const settlementMetrics = this.writeSettlementRollups(next, input.result);
     if (settlementMetrics?.win) {
       recordWin(settlementMetrics.win.agentId, settlementMetrics.win.tier);
@@ -238,6 +254,14 @@ export class InMemoryLedgerStore implements LedgerStore {
       tier: bidRecord.response.tier,
       sample,
     };
+  }
+
+  private writeResultRecord(taskId: TaskId, result: TaskRecord["result"], timestamp: string): void {
+    if (!result) return;
+    this.results.set(
+      resultKey(taskId, result.agent_id),
+      buildResultRecord(taskId, result, timestamp),
+    );
   }
 
   private writeSettlementRollups(
@@ -317,6 +341,10 @@ export class InMemoryLedgerStore implements LedgerStore {
 }
 
 function bidKey(taskId: TaskId, agentId: string): string {
+  return `${taskId}:${agentId}`;
+}
+
+function resultKey(taskId: TaskId, agentId: string): string {
   return `${taskId}:${agentId}`;
 }
 

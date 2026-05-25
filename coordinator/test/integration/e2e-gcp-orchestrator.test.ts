@@ -152,6 +152,22 @@ describe("E2E: client → coordinator → GCP/Orchestrator → settle", () => {
       query: "orchestrator task context",
     });
 
+    const results = await store.listResults(created.task_id);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      task_id: created.task_id,
+      agent_id: "gcp-orchestrator",
+      phase: "execute",
+      actual_input_tokens: 9000,
+      actual_output_tokens: 2500,
+      actual_step_count: 2,
+      actual_tool_call_count: 1,
+    });
+    expect(results[0]?.step_trace?.steps[0]?.actions[0]).toMatchObject({
+      tool: "search",
+      query: "orchestrator task context",
+    });
+
     const bids = await store.listBids(created.task_id);
     expect(bids).toHaveLength(1);
     expect(bids[0]?.agent_id).toBe("gcp-orchestrator");

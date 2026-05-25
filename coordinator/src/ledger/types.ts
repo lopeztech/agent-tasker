@@ -5,6 +5,7 @@ import {
   NoBidReasonSchema,
   PricingEntrySchema,
   ResultSchema,
+  StepTraceSchema,
   TaskIdSchema,
   TaskSpecSchema,
   TaskStatusSchema,
@@ -60,6 +61,24 @@ export const BidRecordSchema = z.object({
   pricing_snapshot: z.array(PricingEntrySchema),
 });
 export type BidRecord = z.infer<typeof BidRecordSchema>;
+
+// Per-agent execution result at tasks/{task_id}/results/{agent_id}. The task
+// root keeps the final client-facing result; this subcollection keeps the
+// analysis-friendly result record for MAPE decomposition and future
+// re-auction attempts.
+export const ResultRecordSchema = z.object({
+  task_id: TaskIdSchema,
+  agent_id: AgentIdSchema,
+  timestamp: Iso8601,
+  phase: z.literal("execute"),
+  result: ResultSchema,
+  step_trace: StepTraceSchema.optional(),
+  actual_input_tokens: z.number().int().nonnegative(),
+  actual_output_tokens: z.number().int().nonnegative(),
+  actual_step_count: z.number().int().nonnegative(),
+  actual_tool_call_count: z.number().int().nonnegative(),
+});
+export type ResultRecord = z.infer<typeof ResultRecordSchema>;
 
 // Per-agent rolling bid accuracy at agent_mape_rollups/{agent_id}. Updated
 // when a winning task settles so tie-breaking and later score-weighted
