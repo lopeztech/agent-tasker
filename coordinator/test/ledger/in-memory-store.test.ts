@@ -65,6 +65,42 @@ function makeResult(agentId: AgentId, taskId = TASK_ID): Result {
   };
 }
 
+function makeResultWithStepTrace(agentId: AgentId, taskId = TASK_ID): Result {
+  return {
+    ...makeResult(agentId, taskId),
+    step_trace: {
+      total_steps: 3,
+      tool_call_count: 2,
+      steps: [
+        {
+          index: 0,
+          state: "SUCCEEDED",
+          description: "Fetch supporting source.",
+          actions: [
+            {
+              tool: "readonly_http_fetch",
+              query: "https://example.test/source",
+              observation: "source body",
+            },
+          ],
+        },
+        {
+          index: 1,
+          state: "SUCCEEDED",
+          description: "Run a small calculation.",
+          actions: [{ tool: "code_eval_sandbox", observation: "42" }],
+        },
+        {
+          index: 2,
+          state: "SUCCEEDED",
+          description: "Synthesize answer.",
+          actions: [],
+        },
+      ],
+    },
+  };
+}
+
 let store: InMemoryLedgerStore;
 
 beforeEach(() => {
@@ -449,6 +485,29 @@ describe("markExecuting / completeTask / failTask", () => {
     const record = await store.completeTask({ taskId: TASK_ID, result });
     expect(record.status).toBe("completed");
     expect(record.result).toEqual(result);
+  });
+
+  it("completeTask persists an analysis-friendly result record with step-trace counts", async () => {
+    await store.markExecuting(TASK_ID);
+    const completedAt = new Date("2026-05-20T12:00:00Z");
+    const result = makeResultWithStepTrace("gcp-gemini");
+
+    await store.completeTask({ taskId: TASK_ID, result, now: completedAt });
+
+    const results = await store.listResults(TASK_ID);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      task_id: TASK_ID,
+      agent_id: "gcp-gemini",
+      timestamp: completedAt.toISOString(),
+      phase: "execute",
+      result,
+      step_trace: result.step_trace,
+      actual_input_tokens: 4100,
+      actual_output_tokens: 950,
+      actual_step_count: 3,
+      actual_tool_call_count: 2,
+    });
   });
 
   it("completeTask updates the winner's rolling MAPE rollup", async () => {

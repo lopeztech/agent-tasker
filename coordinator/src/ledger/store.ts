@@ -12,6 +12,7 @@ import type {
   AgentMapeRollup,
   AgentWinRateRollup,
   BidRecord,
+  ResultRecord,
   TaskRecord,
 } from "./types.js";
 
@@ -43,6 +44,8 @@ export interface LedgerStore {
   recordBidResponse(input: RecordBidResponseInput): Promise<BidRecord>;
 
   listBids(taskId: TaskId): Promise<BidRecord[]>;
+
+  listResults(taskId: TaskId): Promise<ResultRecord[]>;
 
   getAgentMapeRollup(agentId: AgentId): Promise<AgentMapeRollup | null>;
 
