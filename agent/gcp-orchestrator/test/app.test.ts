@@ -10,8 +10,14 @@ import {
 } from "jose";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createTaskTokenVerifier } from "@agent-tasker/agent";
-import { COORDINATOR_ISSUER, TOKEN_TTL_SECONDS, type JwtPhase } from "@agent-tasker/protocol";
+import {
+  COORDINATOR_ISSUER,
+  FALLBACK_PRICING,
+  TOKEN_TTL_SECONDS,
+  type JwtPhase,
+} from "@agent-tasker/protocol";
 import { createApp } from "../src/app.js";
+import type { BidEstimator } from "../src/bid/estimator.js";
 import type { GaepRuntimeClient } from "../src/runtime.js";
 
 const KID = "test-kid";
@@ -66,7 +72,17 @@ beforeEach(() => {
       };
     },
   };
-  app = createApp({ verifier, runtime });
+  const estimator: BidEstimator = {
+    async estimate() {
+      return { input_tokens: 12_000, output_tokens: 2_000, steps: 3, tool_calls: 2 };
+    },
+  };
+  app = createApp({
+    verifier,
+    estimator,
+    pricing: FALLBACK_PRICING["gemini-2-5-pro"]!,
+    runtime,
+  });
 });
 
 describe("GET /health", () => {
@@ -78,7 +94,7 @@ describe("GET /health", () => {
 });
 
 describe("POST /bid", () => {
-  it("returns no_bid until the orchestrator estimator lands", async () => {
+  it("returns a Bid for a valid request", async () => {
     const t = await token({ taskId: "task-bid-1", phase: "bid" });
     const res = await app.request("/bid", {
       method: "POST",
@@ -87,12 +103,16 @@ describe("POST /bid", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      task_id: "task-bid-1",
-      agent_id: "gcp-orchestrator",
-      status: "no_bid",
-      reason: "capability",
-    });
+    const body = (await res.json()) as {
+      agent_id: string;
+      bid_usd: number;
+      tier: string;
+      est_input_tokens: number;
+    };
+    expect(body.agent_id).toBe("gcp-orchestrator");
+    expect(body.tier).toBe("frontier");
+    expect(body.est_input_tokens).toBe(12_000);
+    expect(body.bid_usd).toBeGreaterThan(0);
   });
 
   it("rejects missing bearer with 401", async () => {

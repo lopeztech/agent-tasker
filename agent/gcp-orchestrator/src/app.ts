@@ -1,5 +1,10 @@
 import { Hono } from "hono";
-import { AnnounceRequestSchema, ExecuteRequestSchema, type NoBid } from "@agent-tasker/protocol";
+import {
+  AnnounceRequestSchema,
+  ExecuteRequestSchema,
+  isNoBid,
+  type PricingEntry,
+} from "@agent-tasker/protocol";
 import {
   getTokenClaims,
   requireTaskToken,
@@ -7,10 +12,14 @@ import {
   type TaskTokenVerifier,
 } from "@agent-tasker/agent";
 import { AGENT_ID } from "./index.js";
+import { handleBid } from "./bid/handler.js";
+import type { BidEstimator } from "./bid/estimator.js";
 import { executeViaGaep, type GaepRuntimeClient } from "./runtime.js";
 
 export interface CreateAppOptions {
   verifier: TaskTokenVerifier;
+  estimator: BidEstimator;
+  pricing: PricingEntry;
   runtime: GaepRuntimeClient;
 }
 
@@ -37,14 +46,17 @@ export function createApp(opts: CreateAppOptions) {
     const result = await withAgentSpan(
       "agent.bid",
       { task_id: parsed.data.task_id, agent_id: AGENT_ID, phase: "bid" },
-      async (span): Promise<NoBid> => {
-        span.setAttribute("no_bid_reason", "capability");
-        return {
-          task_id: parsed.data.task_id,
-          agent_id: AGENT_ID,
-          status: "no_bid",
-          reason: "capability",
-        };
+      async (span) => {
+        const bidResult = await handleBid(parsed.data, {
+          estimator: opts.estimator,
+          pricing: opts.pricing,
+        });
+        if (isNoBid(bidResult)) {
+          span.setAttribute("no_bid_reason", bidResult.reason);
+        } else {
+          span.setAttributes({ tier: bidResult.tier, bid_usd: bidResult.bid_usd });
+        }
+        return bidResult;
       },
     );
     return c.json(result);

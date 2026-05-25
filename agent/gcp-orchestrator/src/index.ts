@@ -11,4 +11,5 @@ export function startTelemetry(env?: NodeJS.ProcessEnv): AgentTelemetryHandle | 
 }
 
 export * from "./app.js";
+export * from "./bid/index.js";
 export * from "./runtime.js";
