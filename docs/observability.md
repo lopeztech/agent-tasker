@@ -21,6 +21,10 @@ When `otel_exporter_otlp_endpoint` is unset, Terraform sets `OTEL_TRACES_EXPORTE
 
 `otel_exporter_otlp_headers` is marked sensitive, but it is still stored in Terraform state. Keep state in encrypted, access-controlled backends and rotate the Grafana token if state access changes.
 
+## Alerts
+
+The coordinator Terraform creates a Cloud Monitoring policy for pricing-refresh ERROR logs. Set `pricing_refresh_alert_notification_channels` to Cloud Monitoring notification channel resource names to page on failures; leave it empty to create the policy without notifications while bootstrapping.
+
 ## Dashboards
 
 Import dashboard JSON from `docs/grafana/dashboards/` into Grafana Cloud:

@@ -109,3 +109,9 @@ variable "pricing_refresh_delete_protection" {
   type        = bool
   default     = false
 }
+
+variable "pricing_refresh_alert_notification_channels" {
+  description = "Optional Cloud Monitoring notification channel resource names for pricing-refresh failure alerts. Leave empty to create the policy without paging until channels are provisioned."
+  type        = list(string)
+  default     = []
+}
