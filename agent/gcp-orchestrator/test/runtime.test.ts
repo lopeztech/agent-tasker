@@ -139,6 +139,11 @@ describe("createGaepRuntimeClient", () => {
     expect(JSON.parse(String(calls[0]?.init.body))).toEqual({
       query: { text: "summarize this" },
       userPseudoId: "agent-tasker-task-123",
+      answerGenerationSpec: {
+        promptSpec: {
+          preamble: expect.stringContaining("readonly_http_fetch"),
+        },
+      },
     });
   });
 });

@@ -1,5 +1,10 @@
 import type { ExecuteRequest, Result, StepTrace } from "@agent-tasker/protocol";
 import { AGENT_ID } from "./index.js";
+import {
+  INITIAL_TOOL_SURFACE,
+  buildToolSurfacePreamble,
+  type OrchestratorToolDefinition,
+} from "./tools.js";
 
 export interface GaepRuntimeResult {
   output: string;
@@ -17,6 +22,7 @@ export interface GaepRuntimeClientOptions {
   accessTokenProvider?: AccessTokenProvider;
   fetch?: typeof fetch;
   apiEndpoint?: string;
+  tools?: readonly OrchestratorToolDefinition[];
 }
 
 export type AccessTokenProvider = () => Promise<string>;
@@ -26,6 +32,7 @@ export function createGaepRuntimeClient(opts: GaepRuntimeClientOptions): GaepRun
   const fetchImpl = opts.fetch ?? fetch;
   const accessTokenProvider = opts.accessTokenProvider ?? fetchMetadataAccessToken;
   const apiEndpoint = opts.apiEndpoint ?? "https://discoveryengine.googleapis.com/v1";
+  const tools = opts.tools ?? INITIAL_TOOL_SURFACE;
 
   return {
     async execute(req: ExecuteRequest): Promise<GaepRuntimeResult> {
@@ -42,6 +49,11 @@ export function createGaepRuntimeClient(opts: GaepRuntimeClientOptions): GaepRun
         body: JSON.stringify({
           query: { text: req.spec.prompt },
           userPseudoId: `agent-tasker-${req.task_id}`,
+          answerGenerationSpec: {
+            promptSpec: {
+              preamble: buildToolSurfacePreamble(tools),
+            },
+          },
         }),
       });
       if (!response.ok) {
