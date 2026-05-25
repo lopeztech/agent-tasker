@@ -100,12 +100,35 @@ export const ActualUsageSchema = z.object({
 });
 export type ActualUsage = z.infer<typeof ActualUsageSchema>;
 
+export const StepTraceActionSchema = z.object({
+  tool: z.string().min(1),
+  query: z.string().optional(),
+  observation: z.string().optional(),
+});
+export type StepTraceAction = z.infer<typeof StepTraceActionSchema>;
+
+export const StepTraceStepSchema = z.object({
+  index: NonNegInt,
+  state: z.string().optional(),
+  description: z.string().optional(),
+  actions: z.array(StepTraceActionSchema),
+});
+export type StepTraceStep = z.infer<typeof StepTraceStepSchema>;
+
+export const StepTraceSchema = z.object({
+  total_steps: NonNegInt,
+  tool_call_count: NonNegInt,
+  steps: z.array(StepTraceStepSchema),
+});
+export type StepTrace = z.infer<typeof StepTraceSchema>;
+
 // Result returned by the winner's /execute handler.
 export const ResultSchema = z.object({
   task_id: TaskIdSchema,
   agent_id: AgentIdSchema,
   output: z.string(),
   actual_usage: ActualUsageSchema,
+  step_trace: StepTraceSchema.optional(),
 });
 export type Result = z.infer<typeof ResultSchema>;
 

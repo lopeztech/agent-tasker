@@ -69,6 +69,18 @@ beforeEach(() => {
         output: `orchestrated: ${req.spec.prompt}`,
         input_tokens: 7000,
         output_tokens: 1200,
+        step_trace: {
+          total_steps: 1,
+          tool_call_count: 1,
+          steps: [
+            {
+              index: 0,
+              state: "SUCCEEDED",
+              description: "Search and answer.",
+              actions: [{ tool: "search", query: "do the thing" }],
+            },
+          ],
+        },
       };
     },
   };
@@ -151,6 +163,18 @@ describe("POST /execute", () => {
       agent_id: "gcp-orchestrator",
       output: "orchestrated: do the thing",
       actual_usage: { input_tokens: 7000, output_tokens: 1200 },
+      step_trace: {
+        total_steps: 1,
+        tool_call_count: 1,
+        steps: [
+          {
+            index: 0,
+            state: "SUCCEEDED",
+            description: "Search and answer.",
+            actions: [{ tool: "search", query: "do the thing" }],
+          },
+        ],
+      },
     });
   });
 
