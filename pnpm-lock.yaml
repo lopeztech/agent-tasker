@@ -198,6 +198,9 @@ importers:
       '@agent-tasker/agent-gcp-gemini':
         specifier: workspace:*
         version: link:../agent/gcp-gemini
+      '@agent-tasker/agent-gcp-orchestrator':
+        specifier: workspace:*
+        version: link:../agent/gcp-orchestrator
 
   eval:
     dependencies:
