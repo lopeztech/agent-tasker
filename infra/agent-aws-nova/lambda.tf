@@ -25,13 +25,17 @@ resource "aws_lambda_function" "agent" {
 
   environment {
     variables = {
-      AGENT_ID                 = "aws-nova"
-      AWS_NOVA_BID_MODEL_ID    = var.bedrock_bid_model_id
-      AWS_NOVA_EXEC_MODEL_ID   = var.bedrock_execute_model_id
-      JWKS_URL                 = var.jwks_url
-      NODE_OPTIONS             = "--enable-source-maps"
-      POWERTOOLS_SERVICE_NAME  = "agent-aws-nova"
-      POWERTOOLS_TRACE_ENABLED = "true"
+      AGENT_ID                    = "aws-nova"
+      AWS_NOVA_BID_MODEL_ID       = var.bedrock_bid_model_id
+      AWS_NOVA_EXEC_MODEL_ID      = var.bedrock_execute_model_id
+      JWKS_URL                    = var.jwks_url
+      NODE_OPTIONS                = "--enable-source-maps"
+      OTEL_EXPORTER_OTLP_ENDPOINT = coalesce(var.otel_exporter_otlp_endpoint, "")
+      OTEL_EXPORTER_OTLP_HEADERS  = coalesce(var.otel_exporter_otlp_headers, "")
+      OTEL_SERVICE_NAME           = "agent-tasker-aws-nova"
+      OTEL_TRACES_EXPORTER        = var.otel_exporter_otlp_endpoint == null ? "none" : "otlp"
+      POWERTOOLS_SERVICE_NAME     = "agent-aws-nova"
+      POWERTOOLS_TRACE_ENABLED    = "true"
     }
   }
 

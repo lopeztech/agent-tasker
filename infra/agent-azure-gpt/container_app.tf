@@ -31,6 +31,11 @@ resource "azurerm_container_app" "agent" {
     value = coalesce(var.azure_openai_api_key, "replace-me")
   }
 
+  secret {
+    name  = "otel-exporter-otlp-headers"
+    value = coalesce(var.otel_exporter_otlp_headers, "")
+  }
+
   ingress {
     external_enabled = true
     target_port      = var.agent_port
@@ -95,6 +100,26 @@ resource "azurerm_container_app" "agent" {
       env {
         name  = "KEY_VAULT_URI"
         value = azurerm_key_vault.agent.vault_uri
+      }
+
+      env {
+        name  = "OTEL_SERVICE_NAME"
+        value = "agent-tasker-azure-gpt"
+      }
+
+      env {
+        name  = "OTEL_TRACES_EXPORTER"
+        value = var.otel_exporter_otlp_endpoint == null ? "none" : "otlp"
+      }
+
+      env {
+        name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+        value = coalesce(var.otel_exporter_otlp_endpoint, "")
+      }
+
+      env {
+        name        = "OTEL_EXPORTER_OTLP_HEADERS"
+        secret_name = "otel-exporter-otlp-headers"
       }
     }
   }
