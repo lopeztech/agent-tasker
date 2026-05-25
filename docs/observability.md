@@ -25,6 +25,8 @@ When `otel_exporter_otlp_endpoint` is unset, Terraform sets `OTEL_TRACES_EXPORTE
 
 The coordinator Terraform creates a Cloud Monitoring policy for pricing-refresh ERROR logs. Set `pricing_refresh_alert_notification_channels` to Cloud Monitoring notification channel resource names to page on failures; leave it empty to create the policy without notifications while bootstrapping.
 
+It also creates a JWKS rotation health policy that alerts when the public `jwks.json` object has not been updated in 32 days. Set `jwks_rotation_alert_notification_channels` to route that alert.
+
 ## Dashboards
 
 Import dashboard JSON from `docs/grafana/dashboards/` into Grafana Cloud:

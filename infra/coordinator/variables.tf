@@ -115,3 +115,9 @@ variable "pricing_refresh_alert_notification_channels" {
   type        = list(string)
   default     = []
 }
+
+variable "jwks_rotation_alert_notification_channels" {
+  description = "Optional Cloud Monitoring notification channel resource names for JWKS rotation health alerts. Leave empty to create the policy without notifications while bootstrapping."
+  type        = list(string)
+  default     = []
+}
