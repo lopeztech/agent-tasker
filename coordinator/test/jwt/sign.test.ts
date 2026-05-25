@@ -5,7 +5,12 @@ import {
   TOKEN_TTL_SECONDS,
   TaskTokenClaimsSchema,
 } from "@agent-tasker/protocol";
-import { StaticKeyProvider, signTaskToken, type SigningKey } from "../../src/jwt/index.js";
+import {
+  StaticKeyProvider,
+  signTaskToken,
+  signWebhookToken,
+  type SigningKey,
+} from "../../src/jwt/index.js";
 
 const KID = "test-kid-1";
 
@@ -121,5 +126,29 @@ describe("signTaskToken", () => {
 
     const { protectedHeader } = await verify(jwt, "gcp-gemini");
     expect(protectedHeader.kid).toBe(KID);
+  });
+});
+
+describe("signWebhookToken", () => {
+  it("uses the callback URL as the audience and marks the completed event", async () => {
+    const callbackUrl = "https://client.example.com/callback";
+    const jwt = await signWebhookToken(provider, {
+      taskId: "task-callback",
+      callbackUrl,
+      ttlSeconds: 120,
+    });
+
+    const { payload, protectedHeader } = await verify(jwt, callbackUrl);
+
+    expect(protectedHeader.alg).toBe("RS256");
+    expect(protectedHeader.kid).toBe(KID);
+    expect(payload).toMatchObject({
+      iss: COORDINATOR_ISSUER,
+      sub: COORDINATOR_ISSUER,
+      aud: callbackUrl,
+      task_id: "task-callback",
+      event: "task.completed",
+    });
+    expect(Number(payload.exp) - Number(payload.iat)).toBe(120);
   });
 });

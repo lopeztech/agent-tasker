@@ -16,7 +16,9 @@ import {
 import { SpanStatusCode, trace, type Attributes, type Span } from "@opentelemetry/api";
 import type { LedgerStore } from "../ledger/store.js";
 import { recordAgentBidLatency, recordBidRoundLatency } from "../observability/market-metrics.js";
+import type { TaskRecord } from "../ledger/types.js";
 import type { AuctionRunner } from "./runner.js";
+import { deliverCompletionWebhook, type WebhookSigner } from "./webhook-delivery.js";
 
 // Minimal real AuctionRunner that drives `bidding → awarded → executing →
 // (completed | failed)` for one task via real HTTP fan-out to each agent.
@@ -63,6 +65,10 @@ export interface HttpAuctionRunnerOptions {
   bidExtensionMs?: number;
   bidTimeoutMs?: number;
   executeTimeoutMs?: number;
+  callbackMaxAttempts?: number;
+  callbackInitialBackoffMs?: number;
+  callbackSleep?: (ms: number) => Promise<void>;
+  webhookSigner?: WebhookSigner;
   // Override for tests; defaults to the global `fetch` available in Node 22+.
   fetch?: typeof fetch;
   // Hook so callers can observe runs / surface errors. The runner itself
@@ -197,7 +203,8 @@ export class HttpAuctionRunner implements AuctionRunner {
           actual_usd: actualUsd,
           mape: actualUsd > 0 ? Math.abs(award.winningBidUsd - actualUsd) / actualUsd : 0,
         });
-        await this.opts.store.completeTask({ taskId, result });
+        const completed = await this.opts.store.completeTask({ taskId, result });
+        await this.deliverCallback(completed);
         return;
       } catch (err) {
         failures.push(`winner ${award.winner.agent_id} failed /execute: ${(err as Error).message}`);
@@ -419,6 +426,36 @@ export class HttpAuctionRunner implements AuctionRunner {
       }),
     };
     (this.opts.egressRecorder ?? DEFAULT_AGENT_EGRESS_RECORDER)(event);
+  }
+
+  private async deliverCallback(task: TaskRecord): Promise<void> {
+    if (!task.spec.callback_url) return;
+    if (!this.opts.webhookSigner) {
+      this.opts.onError?.(
+        task.task_id,
+        new Error("callback_url provided but no webhook signer is configured"),
+      );
+      return;
+    }
+
+    const result = await deliverCompletionWebhook({
+      task,
+      signer: this.opts.webhookSigner,
+      fetch: this.opts.fetch ?? fetch,
+      ...(this.opts.callbackMaxAttempts !== undefined
+        ? { maxAttempts: this.opts.callbackMaxAttempts }
+        : {}),
+      ...(this.opts.callbackInitialBackoffMs !== undefined
+        ? { initialBackoffMs: this.opts.callbackInitialBackoffMs }
+        : {}),
+      ...(this.opts.callbackSleep ? { sleep: this.opts.callbackSleep } : {}),
+    });
+    if (!result.ok) {
+      this.opts.onError?.(
+        task.task_id,
+        new Error(`callback delivery failed after ${result.attempts} attempts: ${result.error}`),
+      );
+    }
   }
 }
 
