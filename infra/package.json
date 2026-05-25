@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run test/gcp-agent-isolation.test.ts",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
