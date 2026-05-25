@@ -1,7 +1,6 @@
 # APIs required across the project. Phase 1 minimum plus the small set
 # already known to be needed downstream — enabling APIs is idempotent and
-# free; the cost of forgetting one is debugging time, not dollars. Add
-# GAEP-specific APIs here when the orchestrator stack lands (#90+).
+# free; the cost of forgetting one is debugging time, not dollars.
 locals {
   required_apis = toset([
     "aiplatform.googleapis.com",       # Vertex AI (Gemini direct + GAEP execution)
@@ -10,6 +9,7 @@ locals {
     "cloudfunctions.googleapis.com",   # pricing refresh function (#35)
     "cloudscheduler.googleapis.com",   # pricing refresh trigger (#35)
     "compute.googleapis.com",          # backbone for Cloud Run / external HTTPS LB
+    "discoveryengine.googleapis.com",  # Gemini Enterprise / GAEP orchestrator agent (#90)
     "firestore.googleapis.com",        # ledger + pricing collections (#20, #24)
     "iam.googleapis.com",              # SAs + IAM
     "iamcredentials.googleapis.com",   # SA impersonation (CI, local dev)
