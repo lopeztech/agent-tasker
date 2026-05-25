@@ -1,8 +1,9 @@
 import { serve } from "@hono/node-server";
 import { createRemoteJWKSet } from "jose";
 import { FALLBACK_PRICING } from "@agent-tasker/protocol";
-import { createTaskTokenVerifier } from "@agent-tasker/agent";
+import { createTaskTokenVerifier, startAgentTelemetry } from "@agent-tasker/agent";
 import { createApp } from "./app.js";
+import { AGENT_ID } from "./bid/handler.js";
 import { VertexBidEstimator, createVertexJsonClient } from "./bid/estimator.js";
 import { createVertexTextClient } from "./execute/runner.js";
 
@@ -10,6 +11,7 @@ import { createVertexTextClient } from "./execute/runner.js";
 // infra/agent-gcp-gemini Terraform, then wires Vertex AI clients +
 // the JWT verifier and serves the Hono app on $PORT.
 
+const telemetry = startAgentTelemetry({ serviceName: `agent-tasker-${AGENT_ID}` });
 const port = Number(process.env["PORT"] ?? 8080);
 const projectId = process.env["GCP_PROJECT_ID"];
 const location = process.env["GCP_LOCATION"] ?? "us-central1";
@@ -24,7 +26,7 @@ if (!projectId || !jwksUrl) {
 
 const verifier = createTaskTokenVerifier({
   getKey: createRemoteJWKSet(new URL(jwksUrl), { cacheMaxAge: 10 * 60_000 }),
-  expectedAudience: "gcp-gemini",
+  expectedAudience: AGENT_ID,
 });
 
 const estimator = new VertexBidEstimator(
@@ -49,4 +51,10 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(
     `gcp-gemini agent listening on :${info.port} (project ${projectId}, location ${location})`,
   );
+});
+
+process.once("SIGTERM", () => {
+  void telemetry?.shutdown().finally(() => {
+    process.exit(0);
+  });
 });

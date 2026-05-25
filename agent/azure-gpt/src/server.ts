@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { createRemoteJWKSet } from "jose";
-import { createTaskTokenVerifier } from "@agent-tasker/agent";
+import { createTaskTokenVerifier, startAgentTelemetry } from "@agent-tasker/agent";
 import { FALLBACK_PRICING } from "@agent-tasker/protocol";
 import { AGENT_ID } from "./index.js";
 import { createApp } from "./app.js";
@@ -14,6 +14,7 @@ const azureOpenAiApiKey = process.env["AZURE_OPENAI_API_KEY"];
 const executeDeployment = process.env["AZURE_OPENAI_DEPLOYMENT"] ?? "gpt-5";
 const bidDeployment = process.env["AZURE_OPENAI_BID_DEPLOYMENT"] ?? "gpt-5-mini";
 const apiVersion = process.env["AZURE_OPENAI_API_VERSION"] ?? "2025-04-01-preview";
+const telemetry = startAgentTelemetry({ serviceName: `agent-tasker-${AGENT_ID}` });
 
 if (!jwksUrl || !azureOpenAiEndpoint || !azureOpenAiApiKey) {
   console.error("JWKS_URL, AZURE_OPENAI_ENDPOINT, and AZURE_OPENAI_API_KEY env vars are required");
@@ -51,4 +52,10 @@ const app = createApp({ verifier, estimator, pricing, client });
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.log(`${AGENT_ID} agent listening on :${info.port}`);
+});
+
+process.once("SIGTERM", () => {
+  void telemetry?.shutdown().finally(() => {
+    process.exit(0);
+  });
 });

@@ -22,6 +22,10 @@
   },
   "dependencies": {
     "@agent-tasker/protocol": "workspace:*",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.76.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
+    "@opentelemetry/sdk-node": "^0.218.0",
     "hono": "^4.12.21",
     "jose": "^6.2.3",
     "zod": "^3.25.76"
