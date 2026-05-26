@@ -214,6 +214,8 @@ importers:
         specifier: workspace:*
         version: link:../protocol
 
+  operator-console: {}
+
   protocol:
     dependencies:
       zod:

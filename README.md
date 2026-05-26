@@ -5,5 +5,6 @@ Multi-cloud "agent market": four model-locked LLM agents privately estimate the 
 - **Design + rationale:** [`CLAUDE.md`](./CLAUDE.md)
 - **Local dev setup:** [`docs/local-dev.md`](./docs/local-dev.md)
 - **End-of-v1 security review:** [`docs/security-review-checklist.md`](./docs/security-review-checklist.md)
+- **Operator console:** [`operator-console/index.html`](./operator-console/index.html)
 
 Greenfield. Phase 1 (GCP-only, 2-bidder) is the active build target.
