@@ -121,3 +121,42 @@ variable "jwks_rotation_alert_notification_channels" {
   type        = list(string)
   default     = []
 }
+
+variable "billing_account_id" {
+  description = "Optional GCP billing account ID used to create a project-scoped Cloud Billing budget. Leave null to skip budget creation."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.cost_budget_monthly_usd == null || var.billing_account_id != null
+    error_message = "billing_account_id is required when cost_budget_monthly_usd is set."
+  }
+}
+
+variable "cost_budget_monthly_usd" {
+  description = "Optional monthly GCP budget amount in whole USD. Leave null to skip budget creation."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.cost_budget_monthly_usd == null || var.cost_budget_monthly_usd > 0 && floor(var.cost_budget_monthly_usd) == var.cost_budget_monthly_usd
+    error_message = "cost_budget_monthly_usd must be a positive whole-dollar amount when set."
+  }
+}
+
+variable "cost_budget_threshold_percents" {
+  description = "Budget alert thresholds as whole percentages of monthly budget."
+  type        = list(number)
+  default     = [50, 80, 100]
+
+  validation {
+    condition     = length(var.cost_budget_threshold_percents) > 0 && alltrue([for p in var.cost_budget_threshold_percents : p > 0])
+    error_message = "cost_budget_threshold_percents must contain at least one positive threshold."
+  }
+}
+
+variable "cost_budget_alert_notification_channels" {
+  description = "Cloud Monitoring notification channel resource names to attach to the GCP billing budget. If empty, Billing uses default IAM recipients."
+  type        = list(string)
+  default     = []
+}

@@ -27,6 +27,16 @@ The coordinator Terraform creates a Cloud Monitoring policy for pricing-refresh 
 
 It also creates a JWKS rotation health policy that alerts when the public `jwks.json` object has not been updated in 32 days. Set `jwks_rotation_alert_notification_channels` to route that alert.
 
+## Cost Budget Alarms
+
+Terraform modules keep monthly budget alarms disabled by default. Enable them per environment with `cost_budget_monthly_usd` and notification targets:
+
+- `infra/coordinator`: set `billing_account_id`, `cost_budget_monthly_usd`, and optionally `cost_budget_alert_notification_channels` for a project-scoped GCP Cloud Billing budget.
+- `infra/agent-aws-nova`: set `cost_budget_monthly_usd` and `cost_budget_alert_emails` for AWS Budgets notifications.
+- `infra/agent-azure-gpt`: set `cost_budget_monthly_usd`, `cost_budget_start_date`, and `cost_budget_alert_emails` for an Azure Cost Management budget scoped to the agent resource group.
+
+Use low dev caps first. Budget alerts can lag vendor billing ingestion, so they are a backstop, not a real-time kill switch.
+
 ## Dashboards
 
 Import dashboard JSON from `docs/grafana/dashboards/` into Grafana Cloud:
