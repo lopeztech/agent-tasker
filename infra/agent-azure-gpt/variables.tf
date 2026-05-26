@@ -134,3 +134,47 @@ variable "otel_exporter_otlp_headers" {
   default     = null
   sensitive   = true
 }
+
+variable "cost_budget_monthly_usd" {
+  description = "Optional monthly Azure budget amount in whole USD. Leave null to skip budget creation."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.cost_budget_monthly_usd == null || var.cost_budget_monthly_usd > 0 && floor(var.cost_budget_monthly_usd) == var.cost_budget_monthly_usd
+    error_message = "cost_budget_monthly_usd must be a positive whole-dollar amount when set."
+  }
+}
+
+variable "cost_budget_start_date" {
+  description = "Budget start date in RFC3339 format. Required when cost_budget_monthly_usd is set; Azure requires this to be a valid budget period boundary."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.cost_budget_monthly_usd == null || var.cost_budget_start_date != null
+    error_message = "cost_budget_start_date is required when cost_budget_monthly_usd is set."
+  }
+}
+
+variable "cost_budget_threshold_percents" {
+  description = "Budget alert thresholds as whole percentages of monthly budget."
+  type        = list(number)
+  default     = [50, 80, 100]
+
+  validation {
+    condition     = length(var.cost_budget_threshold_percents) > 0 && alltrue([for p in var.cost_budget_threshold_percents : p > 0])
+    error_message = "cost_budget_threshold_percents must contain at least one positive threshold."
+  }
+}
+
+variable "cost_budget_alert_emails" {
+  description = "Email addresses that receive Azure Cost Management budget notifications. Required when cost_budget_monthly_usd is set."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = var.cost_budget_monthly_usd == null || length(var.cost_budget_alert_emails) > 0
+    error_message = "cost_budget_alert_emails must contain at least one email when cost_budget_monthly_usd is set."
+  }
+}
