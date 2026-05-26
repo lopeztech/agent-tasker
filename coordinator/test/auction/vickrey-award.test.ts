@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AgentId, Bid, Tier } from "@agent-tasker/protocol";
-import { filterBidsByMinTier, selectVickreyAward } from "../../src/auction/http-runner.js";
+import {
+  bidAccuracyMultiplier,
+  filterBidsByMinTier,
+  selectVickreyAward,
+} from "../../src/auction/http-runner.js";
 
 function bidFor(agentId: AgentId, bidUsd: number, tier: Tier = "frontier"): Bid {
   return {
@@ -60,6 +64,8 @@ describe("selectVickreyAward", () => {
     expect(award.winner.agent_id).toBe("aws-nova");
     expect(award.winningBidUsd).toBe(0.0064);
     expect(award.auctionPriceUsd).toBe(0.02);
+    expect(award.scoreAdjustedWinningBidUsd).toBe(0.0064);
+    expect(award.scoreAdjustedAuctionPriceUsd).toBe(0.02);
   });
 
   it("uses the winner's own bid as the price when there is only one bidder", () => {
@@ -93,6 +99,33 @@ describe("selectVickreyAward", () => {
     expect(award.winner.agent_id).toBe("gcp-gemini");
     expect(award.winningBidUsd).toBe(0.01);
     expect(award.auctionPriceUsd).toBe(0.02);
+  });
+
+  it("score-weights bids by MAPE after 100 settled tasks", () => {
+    const award = selectVickreyAward(
+      [bidFor("gcp-gemini", 0.019), bidFor("aws-nova", 0.02), bidFor("azure-gpt", 0.04)],
+      {
+        "gcp-gemini": { mape: 0.2, settledTaskCount: 100 },
+        "aws-nova": { mape: 0.01, settledTaskCount: 100 },
+      },
+    );
+
+    expect(award.winner.agent_id).toBe("aws-nova");
+    expect(award.winningBidUsd).toBe(0.02);
+    expect(award.auctionPriceUsd).toBe(0.019);
+    expect(award.scoreAdjustedWinningBidUsd).toBeCloseTo(0.0202);
+    expect(award.scoreAdjustedAuctionPriceUsd).toBeCloseTo(0.0228);
+  });
+
+  it("does not score-weight agents before 100 settled tasks", () => {
+    const award = selectVickreyAward([bidFor("gcp-gemini", 0.019), bidFor("aws-nova", 0.02)], {
+      "gcp-gemini": { mape: 0.2, settledTaskCount: 99 },
+      "aws-nova": { mape: 0.01, settledTaskCount: 100 },
+    });
+
+    expect(award.winner.agent_id).toBe("gcp-gemini");
+    expect(award.scoreAdjustedWinningBidUsd).toBe(0.019);
+    expect(award.scoreAdjustedAuctionPriceUsd).toBeCloseTo(0.0202);
   });
 
   it("falls back to random selection among tied cold-start agents", () => {
@@ -139,5 +172,16 @@ describe("selectVickreyAward", () => {
 
   it("rejects an empty bid list", () => {
     expect(() => selectVickreyAward([])).toThrow(/at least one bid/);
+  });
+});
+
+describe("bidAccuracyMultiplier", () => {
+  it("is neutral before the score-weighting sample threshold", () => {
+    expect(bidAccuracyMultiplier(undefined)).toBe(1);
+    expect(bidAccuracyMultiplier({ mape: 0.5, settledTaskCount: 99 })).toBe(1);
+  });
+
+  it("adds MAPE to the bid multiplier once enough history exists", () => {
+    expect(bidAccuracyMultiplier({ mape: 0.125, settledTaskCount: 100 })).toBe(1.125);
   });
 });

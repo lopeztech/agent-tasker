@@ -43,7 +43,6 @@ import { deliverCompletionWebhook, type WebhookSigner } from "./webhook-delivery
 //
 // What's still out of scope (separate issues):
 // - Adaptive bid timeout (#52)
-// - Score-weighted auction layer (#81)
 
 export interface AgentEndpoint {
   agentId: AgentId;
@@ -155,23 +154,21 @@ export class HttpAuctionRunner implements AuctionRunner {
       return;
     }
 
-    await this.awardAndExecuteWithReauction(taskId, task.spec, eligibleBids);
+    const accuracyByAgent = await this.accuracyForBids(eligibleBids);
+    await this.awardAndExecuteWithReauction(taskId, task.spec, eligibleBids, accuracyByAgent);
   }
 
   private async awardAndExecuteWithReauction(
     taskId: TaskId,
     spec: TaskSpec,
     eligibleBids: readonly Bid[],
+    accuracyByAgent: AgentAccuracyLookup,
   ): Promise<void> {
     const remainingBids = [...eligibleBids];
     const failures: string[] = [];
 
     while (remainingBids.length > 0) {
-      const award = selectVickreyAward(
-        remainingBids,
-        this.opts.accuracyByAgent,
-        this.opts.tieBreakRandom,
-      );
+      const award = selectVickreyAward(remainingBids, accuracyByAgent, this.opts.tieBreakRandom);
 
       await this.opts.store.awardTask({
         taskId,
@@ -186,6 +183,8 @@ export class HttpAuctionRunner implements AuctionRunner {
         tier: award.winner.tier,
         bid_usd: award.winningBidUsd,
         auction_price_usd: award.auctionPriceUsd,
+        score_adjusted_bid_usd: award.scoreAdjustedWinningBidUsd,
+        score_adjusted_auction_price_usd: award.scoreAdjustedAuctionPriceUsd,
       });
 
       await this.opts.store.markExecuting(taskId);
@@ -389,6 +388,22 @@ export class HttpAuctionRunner implements AuctionRunner {
       actual_usd: computeActualUsdFromBidPrices(winningBid, result),
     });
     return result;
+  }
+
+  private async accuracyForBids(bids: readonly Bid[]): Promise<AgentAccuracyLookup> {
+    const accuracyByAgent: AgentAccuracyLookup = { ...(this.opts.accuracyByAgent ?? {}) };
+    await Promise.all(
+      bids.map(async (bid) => {
+        if (accuracyByAgent[bid.agent_id] !== undefined) return;
+        const rollup = await this.opts.store.getAgentMapeRollup(bid.agent_id);
+        if (!rollup) return;
+        accuracyByAgent[bid.agent_id] = {
+          mape: rollup.mape,
+          settledTaskCount: rollup.settled_task_count,
+        };
+      }),
+    );
+    return accuracyByAgent;
   }
 
   private recordAgentEgress({
@@ -620,6 +635,8 @@ export interface VickreyAward {
   winner: Bid;
   winningBidUsd: number;
   auctionPriceUsd: number;
+  scoreAdjustedWinningBidUsd: number;
+  scoreAdjustedAuctionPriceUsd: number;
 }
 
 export interface AgentAccuracy {
@@ -632,6 +649,7 @@ export type AgentAccuracyLookup = Partial<Record<AgentId, AgentAccuracy>>;
 export type RandomSource = () => number;
 
 export const MIN_SETTLED_TASKS_FOR_MAPE_TIE_BREAK = 10;
+export const MIN_SETTLED_TASKS_FOR_SCORE_WEIGHTING = 100;
 
 export function filterBidsByMinTier(bids: readonly Bid[], minTier: Tier | undefined): Bid[] {
   return bids.filter((bid) => meetsMinTier(bid.tier, minTier));
@@ -646,20 +664,38 @@ export function selectVickreyAward(
     throw new Error("cannot select a Vickrey award without at least one bid");
   }
 
-  const rankedByBid = [...bids].sort((a, b) => a.bid_usd - b.bid_usd);
-  const lowestBidUsd = rankedByBid[0]!.bid_usd;
-  const tiedLowestBids = rankedByBid.filter((bid) => bid.bid_usd === lowestBidUsd);
+  const scoredBids = bids.map((bid) => ({
+    bid,
+    scoreAdjustedBidUsd: scoreAdjustedBidUsd(bid, accuracyByAgent),
+  }));
+  const rankedByBid = scoredBids.sort((a, b) => a.scoreAdjustedBidUsd - b.scoreAdjustedBidUsd);
+  const lowestAdjustedBidUsd = rankedByBid[0]!.scoreAdjustedBidUsd;
+  const tiedLowestBids = rankedByBid
+    .filter((entry) => entry.scoreAdjustedBidUsd === lowestAdjustedBidUsd)
+    .map((entry) => entry.bid);
   const winner =
     tiedLowestBids.length === 1
       ? tiedLowestBids[0]!
       : pickTieWinner(tiedLowestBids, accuracyByAgent, random);
-  const priceBid = rankedByBid.filter((bid) => bid !== winner)[0] ?? winner;
+  const priceEntry = rankedByBid.filter((entry) => entry.bid !== winner)[0] ?? rankedByBid[0]!;
+  const winningAdjustedBidUsd = scoreAdjustedBidUsd(winner, accuracyByAgent);
 
   return {
     winner,
     winningBidUsd: winner.bid_usd,
-    auctionPriceUsd: priceBid.bid_usd,
+    auctionPriceUsd: priceEntry.bid.bid_usd,
+    scoreAdjustedWinningBidUsd: winningAdjustedBidUsd,
+    scoreAdjustedAuctionPriceUsd: priceEntry.scoreAdjustedBidUsd,
   };
+}
+
+export function bidAccuracyMultiplier(accuracy: AgentAccuracy | undefined): number {
+  if (!accuracy || !hasEnoughSettledTasksForScoreWeighting(accuracy)) return 1;
+  return 1 + accuracy.mape;
+}
+
+function scoreAdjustedBidUsd(bid: Bid, accuracyByAgent: AgentAccuracyLookup): number {
+  return bid.bid_usd * bidAccuracyMultiplier(accuracyByAgent[bid.agent_id]);
 }
 
 function pickTieWinner(
@@ -682,6 +718,12 @@ function pickTieWinner(
 function hasEnoughSettledTasks(accuracy: AgentAccuracy | undefined): boolean {
   return (
     accuracy !== undefined && accuracy.settledTaskCount >= MIN_SETTLED_TASKS_FOR_MAPE_TIE_BREAK
+  );
+}
+
+function hasEnoughSettledTasksForScoreWeighting(accuracy: AgentAccuracy | undefined): boolean {
+  return (
+    accuracy !== undefined && accuracy.settledTaskCount >= MIN_SETTLED_TASKS_FOR_SCORE_WEIGHTING
   );
 }
 
