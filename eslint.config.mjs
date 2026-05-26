@@ -19,5 +19,19 @@ export default tseslint.config(
       globals: { ...globals.node },
     },
   },
+  {
+    files: ["operator-console/**/*.js"],
+    languageOptions: {
+      sourceType: "module",
+      globals: { ...globals.browser },
+    },
+  },
+  {
+    files: ["operator-console/scripts/**/*.mjs"],
+    languageOptions: {
+      sourceType: "module",
+      globals: { ...globals.node },
+    },
+  },
   prettier,
 );

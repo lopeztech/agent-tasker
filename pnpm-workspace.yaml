@@ -8,3 +8,4 @@ packages:
   - protocol
   - infra
   - eval
+  - operator-console

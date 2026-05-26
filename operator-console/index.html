@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Tasker Console</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Agent Tasker</p>
+          <h1>Operator Console</h1>
+        </div>
+        <form class="api-form" id="api-form">
+          <label for="api-base">Coordinator</label>
+          <input id="api-base" name="api-base" type="url" placeholder="http://localhost:8080" />
+          <button type="submit">Set</button>
+        </form>
+      </header>
+
+      <section class="status-strip" aria-live="polite">
+        <div>
+          <span>API</span>
+          <strong id="api-label">Not set</strong>
+        </div>
+        <div>
+          <span>Current task</span>
+          <strong id="task-label">None</strong>
+        </div>
+        <div>
+          <span>Polling</span>
+          <strong id="poll-label">Idle</strong>
+        </div>
+      </section>
+
+      <div class="layout">
+        <section class="panel task-panel">
+          <div class="panel-head">
+            <h2>Submit Task</h2>
+            <button class="ghost" id="load-example" type="button">Example</button>
+          </div>
+          <form id="task-form" class="task-form">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt" name="prompt" rows="11" required></textarea>
+
+            <div class="grid-two">
+              <div>
+                <label for="min-tier">Minimum tier</label>
+                <select id="min-tier" name="min-tier">
+                  <option value="">No floor</option>
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="frontier">Frontier</option>
+                </select>
+              </div>
+              <div>
+                <label for="callback-url">Callback URL</label>
+                <input id="callback-url" name="callback-url" type="url" placeholder="Optional" />
+              </div>
+            </div>
+
+            <div class="grid-two">
+              <button type="submit">Submit</button>
+              <button class="ghost" id="stop-polling" type="button">Stop polling</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel task-state">
+          <div class="panel-head">
+            <h2>Task State</h2>
+            <form id="lookup-form" class="lookup-form">
+              <input id="lookup-id" name="lookup-id" placeholder="task_id" />
+              <button class="ghost" type="submit">Load</button>
+            </form>
+          </div>
+
+          <div class="state-grid">
+            <div>
+              <span>Status</span>
+              <strong id="status-value">Idle</strong>
+            </div>
+            <div>
+              <span>Winner</span>
+              <strong id="winner-value">-</strong>
+            </div>
+            <div>
+              <span>Auction price</span>
+              <strong id="auction-value">-</strong>
+            </div>
+            <div>
+              <span>Usage</span>
+              <strong id="usage-value">-</strong>
+            </div>
+          </div>
+
+          <section class="output-block">
+            <h3>Output</h3>
+            <pre id="output-value">No task loaded.</pre>
+          </section>
+
+          <section class="output-block">
+            <h3>Step Trace</h3>
+            <div id="step-trace" class="step-trace">No step trace.</div>
+          </section>
+        </section>
+      </div>
+
+      <section class="panel history-panel">
+        <div class="panel-head">
+          <h2>Recent Tasks</h2>
+          <button class="ghost" id="clear-history" type="button">Clear</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Status</th>
+              <th>Winner</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="history-body">
+            <tr>
+              <td colspan="4">No recent tasks.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
