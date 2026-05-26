@@ -160,3 +160,60 @@ variable "cost_budget_alert_notification_channels" {
   type        = list(string)
   default     = []
 }
+
+variable "ledger_bigquery_export_enabled" {
+  description = "Whether to provision scheduled Firestore ledger export into BigQuery analytical tables."
+  type        = bool
+  default     = false
+}
+
+variable "ledger_bigquery_dataset_id" {
+  description = "BigQuery dataset ID for exported ledger tables."
+  type        = string
+  default     = "agent_tasker_ledger"
+
+  validation {
+    condition     = can(regex("^[A-Za-z_][A-Za-z0-9_]*$", var.ledger_bigquery_dataset_id)) && length(var.ledger_bigquery_dataset_id) <= 1024
+    error_message = "ledger_bigquery_dataset_id must be a valid BigQuery dataset ID."
+  }
+}
+
+variable "ledger_bigquery_location" {
+  description = "BigQuery dataset location for ledger exports."
+  type        = string
+  default     = "US"
+}
+
+variable "ledger_bigquery_table_delete_protection" {
+  description = "Whether BigQuery table deletion protection is enabled for ledger export tables."
+  type        = bool
+  default     = true
+}
+
+variable "ledger_bigquery_table_expiration_days" {
+  description = "Optional default table expiration in days for the ledger export dataset. Leave null to keep analytical tables indefinitely."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.ledger_bigquery_table_expiration_days == null || var.ledger_bigquery_table_expiration_days > 0
+    error_message = "ledger_bigquery_table_expiration_days must be positive when set."
+  }
+}
+
+variable "ledger_bigquery_export_schedule" {
+  description = "Cron expression (Etc/UTC) for scheduled Firestore ledger export to BigQuery."
+  type        = string
+  default     = "30 4 * * *"
+}
+
+variable "ledger_bigquery_export_lookback_hours" {
+  description = "How many hours of recently updated task documents each scheduled ledger export scans."
+  type        = number
+  default     = 24
+
+  validation {
+    condition     = var.ledger_bigquery_export_lookback_hours > 0
+    error_message = "ledger_bigquery_export_lookback_hours must be positive."
+  }
+}

@@ -37,6 +37,24 @@ Terraform modules keep monthly budget alarms disabled by default. Enable them pe
 
 Use low dev caps first. Budget alerts can lag vendor billing ingestion, so they are a backstop, not a real-time kill switch.
 
+## BigQuery Ledger Export
+
+`infra/coordinator` can optionally export the Firestore ledger into BigQuery analytical tables. Enable it with:
+
+```hcl
+ledger_bigquery_export_enabled = true
+ledger_bigquery_dataset_id     = "agent_tasker_ledger"
+ledger_bigquery_location       = "US"
+```
+
+The scheduled exporter scans task documents updated in the last `ledger_bigquery_export_lookback_hours` hours and writes:
+
+- `ledger_tasks`
+- `ledger_bids`
+- `ledger_results`
+
+Rows include flattened columns for common filters plus JSON payload columns for replay/debugging. The exporter uses BigQuery streaming insert IDs, so reruns over the same lookback window are idempotent enough for scheduled retry behavior.
+
 ## Dashboards
 
 Import dashboard JSON from `docs/grafana/dashboards/` into Grafana Cloud:
