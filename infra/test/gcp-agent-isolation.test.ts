@@ -33,11 +33,13 @@ describe("GCP agent Terraform isolation", () => {
     );
   });
 
-  it("grants Cloud Run invocation only to the coordinator service account", () => {
+  // Phase 1: agents use allUsers invoker so the coordinator can call them
+  // with a custom RS256 JWT without needing Cloud Run OIDC tokens. The agent
+  // middleware enforces the application-level JWT. Phase 2 will switch to
+  // coordinator-SA-only invoker + OIDC two-token pattern.
+  it("uses allUsers Cloud Run invoker (Phase 1) — application JWT is the auth boundary", () => {
     for (const moduleText of [geminiInfra, orchestratorInfra]) {
-      expect(moduleText).toContain(
-        'member   = "serviceAccount:${var.coordinator_service_account_email}"',
-      );
+      expect(moduleText).toContain('member   = "allUsers"');
       expect(moduleText).not.toContain(
         'member   = "serviceAccount:${google_service_account.agent_runtime.email}"',
       );
