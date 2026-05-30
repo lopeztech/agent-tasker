@@ -21,6 +21,14 @@ resource "google_logging_metric" "coordinator_agent_egress_bytes" {
     phase        = "EXTRACT(jsonPayload.phase)"
   }
 
+  bucket_options {
+    exponential_buckets {
+      num_finite_buckets = 64
+      growth_factor      = 2
+      scale              = 1
+    }
+  }
+
   metric_descriptor {
     metric_kind  = "DELTA"
     value_type   = "DISTRIBUTION"

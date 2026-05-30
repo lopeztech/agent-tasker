@@ -24,12 +24,6 @@ resource "google_project_iam_member" "agent_vertex" {
   project = var.project_id
   role    = "roles/aiplatform.user"
   member  = "serviceAccount:${google_service_account.agent_runtime.email}"
-
-  condition {
-    title       = "vertex_publishers_google_only"
-    description = "Restrict to Google's first-party model publishers (Gemini family)"
-    expression  = "resource.name.startsWith(\"projects/${var.project_id}/locations/${var.region}/publishers/google/\")"
-  }
 }
 
 resource "google_project_iam_member" "agent_gaep_execution" {
@@ -142,11 +136,15 @@ resource "google_cloud_run_v2_service" "agent" {
   ]
 }
 
-# Coordinator runtime SA is the only principal that can invoke this service.
-resource "google_cloud_run_v2_service_iam_member" "coordinator_only_invoker" {
+# Phase 1: public invoker so the coordinator can call the agent with its
+# custom JWT in the Authorization header without needing a GCP OIDC token.
+# Application-level JWT (RS256, coordinator-signed) is the auth boundary.
+# Future: switch to coordinator-SA-only invoker + X-Task-Token OIDC two-
+# token pattern once OIDC fetching is wired in HttpAuctionRunner.
+resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
   project  = google_cloud_run_v2_service.agent.project
   location = google_cloud_run_v2_service.agent.location
   name     = google_cloud_run_v2_service.agent.name
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${var.coordinator_service_account_email}"
+  member   = "allUsers"
 }
