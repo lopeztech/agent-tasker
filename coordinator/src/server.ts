@@ -48,6 +48,11 @@ if (signingKeySecretName && gcpGeminiUrl && gcpOrchestratorUrl) {
     agents,
     tokenSigner,
     pricingSnapshot: Object.values(FALLBACK_PRICING),
+    // Vertex AI Flash responds in 2-5s; give the bid window room to collect
+    // before the adaptive timeout closes. Phase 1 agents are on min-instances=0
+    // so first-request cold starts can push latency to ~8s.
+    bidInitialWaitMs: 8_000,
+    bidTimeoutMs: 12_000,
     onError: (taskId, err) => {
       console.error(`auction error for task ${taskId}:`, err);
     },
