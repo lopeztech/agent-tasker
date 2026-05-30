@@ -101,6 +101,14 @@ resource "google_cloud_run_v2_service" "coordinator" {
         value = "projects/${var.project_id}/secrets/${local.name_prefix}-coordinator-signing-key/versions/latest"
       }
       env {
+        name  = "GCP_GEMINI_AGENT_URL"
+        value = var.gcp_gemini_agent_url
+      }
+      env {
+        name  = "GCP_ORCHESTRATOR_AGENT_URL"
+        value = var.gcp_orchestrator_agent_url
+      }
+      env {
         name  = "OTEL_SERVICE_NAME"
         value = "agent-tasker-coordinator"
       }

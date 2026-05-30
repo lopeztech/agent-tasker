@@ -55,6 +55,18 @@ variable "jwks_delete_protection" {
   default     = false
 }
 
+variable "gcp_gemini_agent_url" {
+  description = "Base URL for the GCP/Gemini agent Cloud Run service. Set to the Cloud Run service URL after infra/agent-gcp-gemini is applied."
+  type        = string
+  default     = ""
+}
+
+variable "gcp_orchestrator_agent_url" {
+  description = "Base URL for the GCP/Orchestrator agent Cloud Run service. Set to the Cloud Run service URL after infra/agent-gcp-orchestrator is applied."
+  type        = string
+  default     = ""
+}
+
 variable "coordinator_image" {
   description = "Fully-qualified container image for the coordinator Cloud Run service (e.g. us-central1-docker.pkg.dev/PROJECT/agent-tasker-dev-coordinator/coordinator:abc123). Defaults to Google's hello placeholder so `terraform apply` succeeds on a fresh project before the real image has been built and pushed."
   type        = string
