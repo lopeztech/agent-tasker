@@ -16,7 +16,7 @@
 FROM node:22-alpine AS build
 RUN corepack enable
 WORKDIR /workspace
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.base.json ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.base.json .npmrc ./
 COPY protocol/ ./protocol/
 COPY agent/ ./agent/
 COPY coordinator/ ./coordinator/
