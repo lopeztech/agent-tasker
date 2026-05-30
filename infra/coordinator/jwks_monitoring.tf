@@ -30,7 +30,7 @@ resource "google_monitoring_alert_policy" "jwks_stale" {
       duration        = "0s"
 
       aggregations {
-        alignment_period   = "2764800s" # 32 days
+        alignment_period   = "86400s" # 24h (Cloud Monitoring max is 25h)
         per_series_aligner = "ALIGN_SUM"
       }
 

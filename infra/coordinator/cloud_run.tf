@@ -38,6 +38,13 @@ resource "google_storage_bucket_iam_member" "coordinator_jwks_writer" {
   member = "serviceAccount:${google_service_account.coordinator_runtime.email}"
 }
 
+# Secret Manager read access for the signing key secret.
+resource "google_project_iam_member" "coordinator_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.coordinator_runtime.email}"
+}
+
 # Cloud Logging writes (Cloud Run already grants this implicitly to the
 # default SA; explicit binding here keeps custom-SA deploys symmetric).
 resource "google_project_iam_member" "coordinator_logs" {
@@ -90,6 +97,10 @@ resource "google_cloud_run_v2_service" "coordinator" {
         value = google_storage_bucket.jwks.name
       }
       env {
+        name  = "SIGNING_KEY_SECRET_NAME"
+        value = "projects/${var.project_id}/secrets/${local.name_prefix}-coordinator-signing-key/versions/latest"
+      }
+      env {
         name  = "OTEL_SERVICE_NAME"
         value = "agent-tasker-coordinator"
       }
@@ -103,11 +114,11 @@ resource "google_cloud_run_v2_service" "coordinator" {
       }
       env {
         name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
-        value = coalesce(var.otel_exporter_otlp_endpoint, "")
+        value = var.otel_exporter_otlp_endpoint != null ? var.otel_exporter_otlp_endpoint : ""
       }
       env {
         name  = "OTEL_EXPORTER_OTLP_HEADERS"
-        value = coalesce(var.otel_exporter_otlp_headers, "")
+        value = var.otel_exporter_otlp_headers != null ? var.otel_exporter_otlp_headers : ""
       }
     }
   }
@@ -133,6 +144,7 @@ resource "google_cloud_run_v2_service" "coordinator" {
     google_project_iam_member.coordinator_firestore,
     google_storage_bucket_iam_member.coordinator_jwks_writer,
     google_project_iam_member.coordinator_logs,
+    google_project_iam_member.coordinator_secret_accessor,
   ]
 }
 
@@ -145,4 +157,6 @@ resource "google_cloud_run_v2_service_iam_member" "coordinator_public" {
   name     = google_cloud_run_v2_service.coordinator.name
   role     = "roles/run.invoker"
   member   = "allUsers"
+
+  depends_on = [google_project_organization_policy.allow_public_iam]
 }

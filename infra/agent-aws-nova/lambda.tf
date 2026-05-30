@@ -16,7 +16,7 @@ resource "aws_lambda_function" "agent" {
   role = aws_iam_role.agent_runtime.arn
 
   runtime     = "nodejs22.x"
-  handler     = "index.handler"
+  handler     = "server.handler"
   memory_size = var.agent_memory_mb
   timeout     = var.agent_timeout_seconds
 

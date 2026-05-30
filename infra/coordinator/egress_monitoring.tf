@@ -23,7 +23,7 @@ resource "google_logging_metric" "coordinator_agent_egress_bytes" {
 
   metric_descriptor {
     metric_kind  = "DELTA"
-    value_type   = "INT64"
+    value_type   = "DISTRIBUTION"
     unit         = "By"
     display_name = "Coordinator agent egress bytes"
 

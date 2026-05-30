@@ -49,3 +49,45 @@ export class NovaBidEstimator implements BidEstimator {
     };
   }
 }
+
+export interface BedrockNovaJsonClientOptions {
+  region: string;
+  modelId: string;
+}
+
+// Bedrock-backed GenerativeJsonClient for the bid estimator. Uses Nova Micro
+// for low-cost bid calls; parses the first JSON object from the response text.
+export function createBedrockNovaJsonClient(
+  opts: BedrockNovaJsonClientOptions,
+): GenerativeJsonClient {
+  return {
+    async generateJson(prompt: string): Promise<unknown> {
+      const { BedrockRuntimeClient, InvokeModelCommand } =
+        await import("@aws-sdk/client-bedrock-runtime");
+      const client = new BedrockRuntimeClient({ region: opts.region });
+      const command = new InvokeModelCommand({
+        modelId: opts.modelId,
+        contentType: "application/json",
+        accept: "application/json",
+        body: JSON.stringify({
+          messages: [{ role: "user", content: [{ text: prompt }] }],
+          inferenceConfig: { maxTokens: 256, temperature: 0.1 },
+        }),
+      });
+      const response = await client.send(command);
+      const bodyText =
+        typeof response.body === "string" ? response.body : new TextDecoder().decode(response.body);
+      const body = JSON.parse(bodyText) as {
+        output?: { message?: { content?: Array<{ text?: string }> } };
+      };
+      const text = body.output?.message?.content
+        ?.map((p) => p.text ?? "")
+        .join("")
+        .trim();
+      if (!text) throw new Error("Nova bid response empty");
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error(`Nova bid response contains no JSON: ${text}`);
+      return JSON.parse(match[0]) as unknown;
+    },
+  };
+}

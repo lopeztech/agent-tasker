@@ -12,7 +12,8 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "bin": {
-    "agent-tasker-eval": "./dist/index.js"
+    "agent-tasker-eval": "./dist/index.js",
+    "agent-tasker-submit": "./dist/cli.js"
   },
   "dependencies": {
     "@agent-tasker/protocol": "workspace:*"

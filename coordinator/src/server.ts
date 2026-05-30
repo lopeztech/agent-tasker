@@ -15,6 +15,7 @@ import { FirestoreLedgerStore } from "./ledger/firestore-store.js";
 const telemetry = startCoordinatorTelemetry();
 const port = Number(process.env["PORT"] ?? 8080);
 const projectId = process.env["GCP_PROJECT_ID"];
+const signingKeySecretName = process.env["SIGNING_KEY_SECRET_NAME"];
 
 if (!projectId) {
   console.error("GCP_PROJECT_ID env var is required");
@@ -24,6 +25,12 @@ if (!projectId) {
 const firestore = new Firestore({ projectId });
 const store = new FirestoreLedgerStore(firestore);
 const runner = new StubAuctionRunner();
+
+if (signingKeySecretName) {
+  console.log(`Using signing key from Secret Manager: ${signingKeySecretName}`);
+} else {
+  console.warn("SIGNING_KEY_SECRET_NAME not set — JWT signing disabled");
+}
 
 const app = createApp({ store, runner });
 

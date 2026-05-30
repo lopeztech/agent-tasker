@@ -27,7 +27,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["operator-console/scripts/**/*.mjs"],
+    files: ["operator-console/scripts/**/*.mjs", "coordinator/scripts/**/*.mjs"],
     languageOptions: {
       sourceType: "module",
       globals: { ...globals.node },

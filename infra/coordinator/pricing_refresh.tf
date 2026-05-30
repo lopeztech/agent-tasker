@@ -62,7 +62,7 @@ resource "google_storage_bucket_object" "pricing_refresh_source" {
 # Billing Catalog reader, plus log writer.
 resource "google_service_account" "pricing_refresh_runtime" {
   project      = var.project_id
-  account_id   = "${local.name_prefix}-pricing-refresh"
+  account_id   = "${local.name_prefix}-pricer"
   display_name = "Pricing-refresh function runtime SA"
   description  = "Identity for the daily pricing-refresh Cloud Function — writes Firestore /pricing"
 }
@@ -76,12 +76,6 @@ resource "google_project_iam_member" "pricing_refresh_firestore" {
 resource "google_project_iam_member" "pricing_refresh_logs" {
   project = var.project_id
   role    = "roles/logging.logWriter"
-  member  = "serviceAccount:${google_service_account.pricing_refresh_runtime.email}"
-}
-
-resource "google_project_iam_member" "pricing_refresh_billing_catalog" {
-  project = var.project_id
-  role    = "roles/billing.viewer"
   member  = "serviceAccount:${google_service_account.pricing_refresh_runtime.email}"
 }
 
@@ -132,7 +126,6 @@ resource "google_cloudfunctions2_function" "pricing_refresh" {
   }
 
   depends_on = [
-    google_project_iam_member.pricing_refresh_billing_catalog,
     google_project_iam_member.pricing_refresh_firestore,
     google_project_iam_member.pricing_refresh_logs,
   ]

@@ -59,6 +59,8 @@ resource "google_storage_bucket_iam_member" "jwks_public_read" {
   bucket = google_storage_bucket.jwks.name
   role   = "roles/storage.objectViewer"
   member = "allUsers"
+
+  depends_on = [google_project_organization_policy.allow_public_iam]
 }
 
 # The JWKS document itself is published by the coordinator at runtime (see

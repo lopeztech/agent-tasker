@@ -114,11 +114,11 @@ resource "google_cloud_run_v2_service" "agent" {
       }
       env {
         name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
-        value = coalesce(var.otel_exporter_otlp_endpoint, "")
+        value = var.otel_exporter_otlp_endpoint != null ? var.otel_exporter_otlp_endpoint : ""
       }
       env {
         name  = "OTEL_EXPORTER_OTLP_HEADERS"
-        value = coalesce(var.otel_exporter_otlp_headers, "")
+        value = var.otel_exporter_otlp_headers != null ? var.otel_exporter_otlp_headers : ""
       }
     }
   }

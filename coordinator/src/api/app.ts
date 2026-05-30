@@ -17,7 +17,7 @@ export interface CreateAppOptions {
 export function createApp(opts: CreateAppOptions) {
   const app = new Hono();
 
-  app.get("/healthz", (c) => c.text("ok"));
+  app.get("/health", (c) => c.json({ ok: true, service: "coordinator" }));
 
   app.post("/tasks", (c) =>
     handlePostTasks(c, {
