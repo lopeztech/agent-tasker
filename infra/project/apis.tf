@@ -19,6 +19,7 @@ locals {
     "secretmanager.googleapis.com",    # JWT signing key (#25) + agent secrets
     "serviceusage.googleapis.com",     # required for google_project_service itself
     "storage.googleapis.com",          # JWKS bucket (#26) + tf state bucket
+    "sts.googleapis.com",              # Security Token Service — required for WIF token exchange
   ])
 }
 

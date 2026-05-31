@@ -9,6 +9,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  GCP_PROJECT_ID: agent-tasker-lcd
+  GCP_REGION: us-central1
+  COORDINATOR_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-coordinator/coordinator
+  GCP_GEMINI_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-gcp-gemini/gcp-gemini
+  GCP_ORCHESTRATOR_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-gcp-orchestrator/gcp-orchestrator
+
 jobs:
   node:
     name: Node (typecheck + test)
@@ -64,3 +71,77 @@ jobs:
             echo "::endgroup::"
           done
           exit $failed
+
+  deploy:
+    name: Deploy to Cloud Run
+    needs: [node, terraform]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push coordinator
+        run: |
+          docker build -f coordinator/Dockerfile \
+            -t ${{ env.COORDINATOR_REPO }}:${{ github.sha }} \
+            -t ${{ env.COORDINATOR_REPO }}:latest \
+            .
+          docker push ${{ env.COORDINATOR_REPO }}:${{ github.sha }}
+          docker push ${{ env.COORDINATOR_REPO }}:latest
+
+      - name: Build and push gcp-gemini
+        run: |
+          docker build -f agent/gcp-gemini/Dockerfile \
+            -t ${{ env.GCP_GEMINI_REPO }}:${{ github.sha }} \
+            -t ${{ env.GCP_GEMINI_REPO }}:latest \
+            .
+          docker push ${{ env.GCP_GEMINI_REPO }}:${{ github.sha }}
+          docker push ${{ env.GCP_GEMINI_REPO }}:latest
+
+      - name: Build and push gcp-orchestrator
+        run: |
+          docker build -f agent/gcp-orchestrator/Dockerfile \
+            -t ${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }} \
+            -t ${{ env.GCP_ORCHESTRATOR_REPO }}:latest \
+            .
+          docker push ${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }}
+          docker push ${{ env.GCP_ORCHESTRATOR_REPO }}:latest
+
+      - name: Deploy coordinator
+        run: |
+          gcloud run services update agent-tasker-dev-coordinator \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --region=${{ env.GCP_REGION }} \
+            --image=${{ env.COORDINATOR_REPO }}:${{ github.sha }} \
+            --quiet
+
+      - name: Deploy gcp-gemini
+        run: |
+          gcloud run services update agent-tasker-dev-gcp-gemini \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --region=${{ env.GCP_REGION }} \
+            --image=${{ env.GCP_GEMINI_REPO }}:${{ github.sha }} \
+            --quiet
+
+      - name: Deploy gcp-orchestrator
+        run: |
+          gcloud run services update agent-tasker-dev-gcp-orchestrator \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --region=${{ env.GCP_REGION }} \
+            --image=${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }} \
+            --quiet

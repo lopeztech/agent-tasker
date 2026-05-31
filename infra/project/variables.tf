@@ -30,3 +30,9 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "github_repo" {
+  description = "GitHub repository in owner/repo format (e.g. lopeztech/agent-tasker). Used to scope the WIF attribute condition so only tokens from this repo can impersonate the CI SA."
+  type        = string
+  default     = "lopeztech/agent-tasker"
+}
