@@ -27,11 +27,11 @@ async function post(body: unknown): Promise<Response> {
   });
 }
 
-describe("GET /healthz", () => {
+describe("GET /health", () => {
   it("returns 200 ok", async () => {
-    const res = await app.request("/healthz");
+    const res = await app.request("/health");
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe("ok");
+    expect(await res.json()).toMatchObject({ ok: true });
   });
 });
 
