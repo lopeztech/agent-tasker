@@ -15,6 +15,8 @@ env:
   COORDINATOR_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-coordinator/coordinator
   GCP_GEMINI_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-gcp-gemini/gcp-gemini
   GCP_ORCHESTRATOR_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-gcp-orchestrator/gcp-orchestrator
+  AWS_REGION: us-east-1
+  AWS_LAMBDA_ARTIFACTS_BUCKET: agent-tasker-dev-aws-nova-artifacts
 
 jobs:
   node:
@@ -153,3 +155,29 @@ jobs:
           terraform init -backend-config=backend.hcl -input=false -no-color
           terraform apply -auto-approve -input=false -no-color \
             -var="agent_image=${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }}"
+
+      # ── Phase 2: AWS/Nova ────────────────────────────────────────────────
+      - name: Build Lambda zip
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter '@agent-tasker/agent-aws-nova...' build
+          pnpm --filter @agent-tasker/agent-aws-nova deploy --prod /tmp/aws-nova-deploy
+          cd /tmp/aws-nova-deploy && zip -r "$GITHUB_WORKSPACE/aws-nova.zip" .
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload Lambda zip to S3
+        run: |
+          aws s3 cp aws-nova.zip \
+            s3://${{ env.AWS_LAMBDA_ARTIFACTS_BUCKET }}/aws-nova-${{ github.sha }}.zip
+
+      - name: Terraform apply — aws-nova agent
+        working-directory: infra/agent-aws-nova
+        run: |
+          terraform init -backend-config=backend.hcl -input=false -no-color
+          terraform apply -auto-approve -input=false -no-color \
+            -var="agent_lambda_s3_key=aws-nova-${{ github.sha }}.zip"

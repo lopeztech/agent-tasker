@@ -67,6 +67,12 @@ variable "gcp_orchestrator_agent_url" {
   default     = ""
 }
 
+variable "aws_nova_agent_url" {
+  description = "Base URL for the AWS/Nova agent API Gateway endpoint. Empty string omits this agent from the HttpAuctionRunner pool (Phase 1 default). Set to the agent_api_endpoint output from infra/agent-aws-nova after Phase 2 is deployed."
+  type        = string
+  default     = ""
+}
+
 variable "coordinator_image" {
   description = "Fully-qualified container image for the coordinator Cloud Run service (e.g. us-central1-docker.pkg.dev/PROJECT/agent-tasker-dev-coordinator/coordinator:abc123). Defaults to Google's hello placeholder so `terraform apply` succeeds on a fresh project before the real image has been built and pushed."
   type        = string

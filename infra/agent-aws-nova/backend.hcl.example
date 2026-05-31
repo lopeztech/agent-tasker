@@ -1,14 +1,9 @@
-# Usage:
+# Copy to backend.hcl and pass to:
 #   terraform init -backend-config=backend.hcl
 #
-# Manual prereqs:
-#   - S3 bucket for Terraform state
-#   - optional DynamoDB table for state locking if your environment uses it
-#
-# bucket = "agent-tasker-dev-terraform-state"
-# key    = "agent-aws-nova/terraform.tfstate"
-# region = "us-east-1"
-#
-# Optional:
-# dynamodb_table = "agent-tasker-dev-terraform-locks"
-# encrypt        = true
+# All modules in this repo store Terraform state in the same GCS bucket
+# (created during infra/project bootstrap) with distinct prefixes.
+# No separate S3 bucket or DynamoDB lock table required.
+
+bucket = "YOUR_GCS_STATE_BUCKET"   # e.g. agent-tasker-tfstate-lcd
+prefix = "agent-aws-nova/dev"

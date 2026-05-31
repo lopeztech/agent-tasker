@@ -1,9 +1,3 @@
-data "archive_file" "agent_placeholder" {
-  type        = "zip"
-  source_dir  = "${path.module}/functions/placeholder"
-  output_path = "${path.module}/functions/.dist/aws-nova-placeholder.zip"
-}
-
 resource "aws_cloudwatch_log_group" "agent" {
   name              = "/aws/lambda/${local.agent_name}"
   retention_in_days = 14
@@ -20,8 +14,11 @@ resource "aws_lambda_function" "agent" {
   memory_size = var.agent_memory_mb
   timeout     = var.agent_timeout_seconds
 
-  filename         = data.archive_file.agent_placeholder.output_path
-  source_code_hash = data.archive_file.agent_placeholder.output_base64sha256
+  # CI passes -var="agent_lambda_s3_key=aws-nova-SHA.zip" on each deploy.
+  # The default key points to the placeholder uploaded by artifacts.tf so
+  # the first `terraform apply` succeeds before any CI run has run.
+  s3_bucket = aws_s3_bucket.lambda_artifacts.bucket
+  s3_key    = var.agent_lambda_s3_key
 
   environment {
     variables = {
@@ -43,5 +40,6 @@ resource "aws_lambda_function" "agent" {
     aws_cloudwatch_log_group.agent,
     aws_iam_role_policy.agent_bedrock_nova,
     aws_iam_role_policy.agent_logs,
+    aws_s3_object.placeholder,
   ]
 }

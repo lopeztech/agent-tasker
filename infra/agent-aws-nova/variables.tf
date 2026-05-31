@@ -26,6 +26,18 @@ variable "tags" {
   default     = {}
 }
 
+variable "github_repo" {
+  description = "GitHub repository in owner/repo format. Used to scope the OIDC trust so only tokens from this repo can assume the CI role."
+  type        = string
+  default     = "lopeztech/agent-tasker"
+}
+
+variable "agent_lambda_s3_key" {
+  description = "S3 key for the Lambda deployment zip inside the artifacts bucket. CI passes the current commit SHA (e.g. aws-nova-abc1234.zip); the default points to the bootstrap placeholder uploaded by Terraform on first apply."
+  type        = string
+  default     = "bootstrap/aws-nova-placeholder.zip"
+}
+
 variable "agent_memory_mb" {
   description = "Memory allocated to the AWS/Nova Lambda function."
   type        = number

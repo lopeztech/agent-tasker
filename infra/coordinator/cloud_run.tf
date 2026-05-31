@@ -109,6 +109,10 @@ resource "google_cloud_run_v2_service" "coordinator" {
         value = var.gcp_orchestrator_agent_url
       }
       env {
+        name  = "AWS_NOVA_AGENT_URL"
+        value = var.aws_nova_agent_url
+      }
+      env {
         name  = "OTEL_SERVICE_NAME"
         value = "agent-tasker-coordinator"
       }
