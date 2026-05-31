@@ -44,15 +44,15 @@ resource "google_service_account" "cicd" {
   depends_on = [google_project_service.required]
 }
 
-resource "google_project_iam_member" "cicd_ar_writer" {
+# Owner is intentional: the CI SA runs `terraform apply` for all four modules
+# (project, coordinator, agent-gcp-gemini, agent-gcp-orchestrator), which
+# means it must create/update service accounts, IAM bindings, Cloud Run
+# services, Firestore, Secret Manager, WIF pools, and org policies. A
+# scoped role set covering all of that converges on owner for a
+# single-operator project. Re-evaluate if the project becomes multi-tenant.
+resource "google_project_iam_member" "cicd_owner" {
   project = var.project_id
-  role    = "roles/artifactregistry.writer"
-  member  = "serviceAccount:${google_service_account.cicd.email}"
-}
-
-resource "google_project_iam_member" "cicd_run_developer" {
-  project = var.project_id
-  role    = "roles/run.developer"
+  role    = "roles/owner"
   member  = "serviceAccount:${google_service_account.cicd.email}"
 }
 

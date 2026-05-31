@@ -73,13 +73,16 @@ jobs:
           exit $failed
 
   deploy:
-    name: Deploy to Cloud Run
+    name: Build, push, and deploy
     needs: [node, terraform]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
+
+    env:
+      TF_IN_AUTOMATION: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -92,56 +95,61 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
+      # Build all images before any Terraform apply so a tag is never
+      # written to Cloud Run before it has been pushed to the registry.
       - name: Build and push coordinator
         run: |
           docker build -f coordinator/Dockerfile \
-            -t ${{ env.COORDINATOR_REPO }}:${{ github.sha }} \
-            -t ${{ env.COORDINATOR_REPO }}:latest \
-            .
+            -t ${{ env.COORDINATOR_REPO }}:${{ github.sha }} .
           docker push ${{ env.COORDINATOR_REPO }}:${{ github.sha }}
-          docker push ${{ env.COORDINATOR_REPO }}:latest
 
       - name: Build and push gcp-gemini
         run: |
           docker build -f agent/gcp-gemini/Dockerfile \
-            -t ${{ env.GCP_GEMINI_REPO }}:${{ github.sha }} \
-            -t ${{ env.GCP_GEMINI_REPO }}:latest \
-            .
+            -t ${{ env.GCP_GEMINI_REPO }}:${{ github.sha }} .
           docker push ${{ env.GCP_GEMINI_REPO }}:${{ github.sha }}
-          docker push ${{ env.GCP_GEMINI_REPO }}:latest
 
       - name: Build and push gcp-orchestrator
         run: |
           docker build -f agent/gcp-orchestrator/Dockerfile \
-            -t ${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }} \
-            -t ${{ env.GCP_ORCHESTRATOR_REPO }}:latest \
-            .
+            -t ${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }} .
           docker push ${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }}
-          docker push ${{ env.GCP_ORCHESTRATOR_REPO }}:latest
 
-      - name: Deploy coordinator
+      # Apply modules in dependency order. The project module is applied
+      # first so any API or IAM changes it manages are live before the
+      # downstream modules run. Image tags are passed as -var overrides so
+      # the committed tfvars never contain a hardcoded SHA.
+      - name: Terraform apply — project
+        working-directory: infra/project
         run: |
-          gcloud run services update agent-tasker-dev-coordinator \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --region=${{ env.GCP_REGION }} \
-            --image=${{ env.COORDINATOR_REPO }}:${{ github.sha }} \
-            --quiet
+          terraform init -backend-config=backend.hcl -input=false -no-color
+          terraform apply -auto-approve -input=false -no-color
 
-      - name: Deploy gcp-gemini
+      - name: Terraform apply — coordinator
+        working-directory: infra/coordinator
         run: |
-          gcloud run services update agent-tasker-dev-gcp-gemini \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --region=${{ env.GCP_REGION }} \
-            --image=${{ env.GCP_GEMINI_REPO }}:${{ github.sha }} \
-            --quiet
+          terraform init -backend-config=backend.hcl -input=false -no-color
+          terraform apply -auto-approve -input=false -no-color \
+            -var="coordinator_image=${{ env.COORDINATOR_REPO }}:${{ github.sha }}"
 
-      - name: Deploy gcp-orchestrator
+      - name: Terraform apply — gcp-gemini agent
+        working-directory: infra/agent-gcp-gemini
         run: |
-          gcloud run services update agent-tasker-dev-gcp-orchestrator \
-            --project=${{ env.GCP_PROJECT_ID }} \
-            --region=${{ env.GCP_REGION }} \
-            --image=${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }} \
-            --quiet
+          terraform init -backend-config=backend.hcl -input=false -no-color
+          terraform apply -auto-approve -input=false -no-color \
+            -var="agent_image=${{ env.GCP_GEMINI_REPO }}:${{ github.sha }}"
+
+      - name: Terraform apply — gcp-orchestrator agent
+        working-directory: infra/agent-gcp-orchestrator
+        run: |
+          terraform init -backend-config=backend.hcl -input=false -no-color
+          terraform apply -auto-approve -input=false -no-color \
+            -var="agent_image=${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }}"
