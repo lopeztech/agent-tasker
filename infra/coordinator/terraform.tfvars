@@ -15,3 +15,6 @@ gcp_orchestrator_agent_url = "https://agent-tasker-dev-gcp-orchestrator-n6ey4mj4
 
 # Set to the agent_api_endpoint output from infra/agent-aws-nova after Phase 2 bootstrap.
 aws_nova_agent_url = ""
+
+# Set to the agent_url output from infra/agent-azure-gpt after Phase 3 bootstrap.
+azure_gpt_agent_url = ""

@@ -21,6 +21,7 @@ const signingKeySecretName = process.env["SIGNING_KEY_SECRET_NAME"];
 const gcpGeminiUrl = process.env["GCP_GEMINI_AGENT_URL"];
 const gcpOrchestratorUrl = process.env["GCP_ORCHESTRATOR_AGENT_URL"];
 const awsNovaUrl = process.env["AWS_NOVA_AGENT_URL"];
+const azureGptUrl = process.env["AZURE_GPT_AGENT_URL"];
 
 if (!projectId) {
   console.error("GCP_PROJECT_ID env var is required");
@@ -44,6 +45,7 @@ if (signingKeySecretName && gcpGeminiUrl && gcpOrchestratorUrl) {
     { agentId: "gcp-gemini", baseUrl: gcpGeminiUrl },
     { agentId: "gcp-orchestrator", baseUrl: gcpOrchestratorUrl },
     ...(awsNovaUrl ? [{ agentId: "aws-nova" as const, baseUrl: awsNovaUrl }] : []),
+    ...(azureGptUrl ? [{ agentId: "azure-gpt" as const, baseUrl: azureGptUrl }] : []),
   ];
   runner = new HttpAuctionRunner({
     store,

@@ -76,6 +76,16 @@ variable "jwks_url" {
   type        = string
 }
 
+variable "acr_login_server" {
+  description = "Azure Container Registry login server hostname (e.g. myregistry.azurecr.io). From the acr_login_server output of infra/azure-bootstrap."
+  type        = string
+}
+
+variable "acr_resource_id" {
+  description = "Azure Container Registry resource ID. From the acr_resource_id output of infra/azure-bootstrap. Used to assign AcrPull to the Container App managed identity."
+  type        = string
+}
+
 variable "azure_openai_endpoint" {
   description = "Azure OpenAI endpoint URL used by the Azure/GPT agent."
   type        = string

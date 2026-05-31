@@ -28,6 +28,12 @@ resource "azurerm_role_assignment" "ci_state_blob_contributor" {
   principal_id         = azuread_service_principal.ci.object_id
 }
 
+resource "azurerm_role_assignment" "ci_acr_push" {
+  scope                = azurerm_container_registry.agent.id
+  role_definition_name = "AcrPush"
+  principal_id         = azuread_service_principal.ci.object_id
+}
+
 resource "azuread_application" "agent" {
   display_name     = "${local.name_prefix}-azure-gpt-agent"
   sign_in_audience = "AzureADMyOrg"

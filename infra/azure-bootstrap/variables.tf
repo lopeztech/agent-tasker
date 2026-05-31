@@ -69,6 +69,17 @@ variable "state_container_name" {
   }
 }
 
+variable "acr_name" {
+  description = "Optional globally unique Azure Container Registry name (5-50 alphanumeric chars). Defaults to a deterministic project/env name."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.acr_name == null || can(regex("^[a-zA-Z0-9]{5,50}$", var.acr_name))
+    error_message = "acr_name must be 5-50 alphanumeric chars."
+  }
+}
+
 variable "github_owner" {
   description = "GitHub organization/user that owns the repository using the CI service principal."
   type        = string

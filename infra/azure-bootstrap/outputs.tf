@@ -37,3 +37,13 @@ output "agent_service_principal_object_id" {
   description = "Object ID for the Azure/GPT agent enterprise application."
   value       = azuread_service_principal.agent.object_id
 }
+
+output "acr_login_server" {
+  description = "ACR login server hostname (e.g. agentaskerdevazgptacr.azurecr.io). Set as AZURE_GPT_ACR_LOGIN_SERVER in ci.yml and acr_login_server in infra/agent-azure-gpt/terraform.tfvars."
+  value       = azurerm_container_registry.agent.login_server
+}
+
+output "acr_resource_id" {
+  description = "ACR resource ID. Set as acr_resource_id in infra/agent-azure-gpt/terraform.tfvars so the module can assign AcrPull to the Container App managed identity."
+  value       = azurerm_container_registry.agent.id
+}

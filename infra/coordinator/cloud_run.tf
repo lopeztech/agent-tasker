@@ -113,6 +113,10 @@ resource "google_cloud_run_v2_service" "coordinator" {
         value = var.aws_nova_agent_url
       }
       env {
+        name  = "AZURE_GPT_AGENT_URL"
+        value = var.azure_gpt_agent_url
+      }
+      env {
         name  = "OTEL_SERVICE_NAME"
         value = "agent-tasker-coordinator"
       }

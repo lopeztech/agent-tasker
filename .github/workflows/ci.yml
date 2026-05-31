@@ -17,6 +17,8 @@ env:
   GCP_ORCHESTRATOR_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-gcp-orchestrator/gcp-orchestrator
   AWS_REGION: us-east-1
   AWS_LAMBDA_ARTIFACTS_BUCKET: agent-tasker-dev-aws-nova-artifacts
+  AZURE_GPT_ACR_LOGIN_SERVER: agentaskerdevazgptacr.azurecr.io
+  AZURE_GPT_REPO: agentaskerdevazgptacr.azurecr.io/azure-gpt
 
 jobs:
   node:
@@ -181,3 +183,30 @@ jobs:
           terraform init -backend-config=backend.hcl -input=false -no-color
           terraform apply -auto-approve -input=false -no-color \
             -var="agent_lambda_s3_key=aws-nova-${{ github.sha }}.zip"
+
+      # ── Phase 3: Azure/GPT ───────────────────────────────────────────────
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push azure-gpt
+        run: |
+          az acr login --name ${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}
+          docker build -f agent/azure-gpt/Dockerfile \
+            -t ${{ env.AZURE_GPT_REPO }}:${{ github.sha }} .
+          docker push ${{ env.AZURE_GPT_REPO }}:${{ github.sha }}
+
+      - name: Terraform apply — azure-gpt agent
+        working-directory: infra/agent-azure-gpt
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: "true"
+        run: |
+          terraform init -backend-config=backend.hcl -input=false -no-color
+          terraform apply -auto-approve -input=false -no-color \
+            -var="agent_image=${{ env.AZURE_GPT_REPO }}:${{ github.sha }}"

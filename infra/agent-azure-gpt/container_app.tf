@@ -36,6 +36,11 @@ resource "azurerm_container_app" "agent" {
     value = coalesce(var.otel_exporter_otlp_headers, "")
   }
 
+  registry {
+    server   = var.acr_login_server
+    identity = "System"
+  }
+
   ingress {
     external_enabled = true
     target_port      = var.agent_port

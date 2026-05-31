@@ -73,6 +73,12 @@ variable "aws_nova_agent_url" {
   default     = ""
 }
 
+variable "azure_gpt_agent_url" {
+  description = "Base URL for the Azure/GPT Container App. Empty string omits this agent (Phase 1-2 default). Set to the agent_url output from infra/agent-azure-gpt after Phase 3 is deployed."
+  type        = string
+  default     = ""
+}
+
 variable "coordinator_image" {
   description = "Fully-qualified container image for the coordinator Cloud Run service (e.g. us-central1-docker.pkg.dev/PROJECT/agent-tasker-dev-coordinator/coordinator:abc123). Defaults to Google's hello placeholder so `terraform apply` succeeds on a fresh project before the real image has been built and pushed."
   type        = string

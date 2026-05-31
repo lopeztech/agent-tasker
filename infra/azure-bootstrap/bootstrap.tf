@@ -35,3 +35,12 @@ resource "azurerm_storage_container" "tfstate" {
   storage_account_id    = azurerm_storage_account.tfstate.id
   container_access_type = "private"
 }
+
+resource "azurerm_container_registry" "agent" {
+  name                = coalesce(var.acr_name, substr(replace("${local.name_prefix}azgptacr", "-", ""), 0, 50))
+  resource_group_name = azurerm_resource_group.bootstrap.name
+  location            = azurerm_resource_group.bootstrap.location
+  sku                 = "Basic"
+  admin_enabled       = false
+  tags                = local.common_tags
+}
