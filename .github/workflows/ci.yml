@@ -87,6 +87,10 @@ jobs:
 
     env:
       TF_IN_AUTOMATION: "true"
+      # The secrets context is not available in step-level `if`, so presence
+      # checks for the Phase 2/3 deploy identities go through env instead.
+      HAS_AWS: ${{ secrets.AWS_ROLE_ARN != '' }}
+      HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -162,7 +166,7 @@ jobs:
       # Skipped until AWS_ROLE_ARN is configured (the AWS stack and its CI
       # OIDC role come from applying infra/agent-aws-nova).
       - name: Build Lambda zip
-        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        if: env.HAS_AWS == 'true'
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter '@agent-tasker/agent-aws-nova...' build
@@ -170,20 +174,20 @@ jobs:
           cd /tmp/aws-nova-deploy && zip -r "$GITHUB_WORKSPACE/aws-nova.zip" .
 
       - name: Configure AWS credentials
-        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        if: env.HAS_AWS == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload Lambda zip to S3
-        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        if: env.HAS_AWS == 'true'
         run: |
           aws s3 cp aws-nova.zip \
             s3://${{ env.AWS_LAMBDA_ARTIFACTS_BUCKET }}/aws-nova-${{ github.sha }}.zip
 
       - name: Terraform apply — aws-nova agent
-        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        if: env.HAS_AWS == 'true'
         working-directory: infra/agent-aws-nova
         run: |
           terraform init -backend-config=backend.hcl -input=false -no-color
@@ -194,7 +198,7 @@ jobs:
       # Skipped until the Azure deploy identity is configured (comes from
       # applying infra/azure-bootstrap).
       - name: Azure login
-        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
+        if: env.HAS_AZURE == 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -202,7 +206,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Build and push azure-gpt
-        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
+        if: env.HAS_AZURE == 'true'
         run: |
           az acr login --name ${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}
           docker build -f agent/azure-gpt/Dockerfile \
@@ -210,7 +214,7 @@ jobs:
           docker push ${{ env.AZURE_GPT_REPO }}:${{ github.sha }}
 
       - name: Terraform apply — azure-gpt agent
-        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
+        if: env.HAS_AZURE == 'true'
         working-directory: infra/agent-azure-gpt
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
