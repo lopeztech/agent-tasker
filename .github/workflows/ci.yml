@@ -159,7 +159,10 @@ jobs:
             -var="agent_image=${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }}"
 
       # ── Phase 2: AWS/Nova ────────────────────────────────────────────────
+      # Skipped until AWS_ROLE_ARN is configured (the AWS stack and its CI
+      # OIDC role come from applying infra/agent-aws-nova).
       - name: Build Lambda zip
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter '@agent-tasker/agent-aws-nova...' build
@@ -167,17 +170,20 @@ jobs:
           cd /tmp/aws-nova-deploy && zip -r "$GITHUB_WORKSPACE/aws-nova.zip" .
 
       - name: Configure AWS credentials
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Upload Lambda zip to S3
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
         run: |
           aws s3 cp aws-nova.zip \
             s3://${{ env.AWS_LAMBDA_ARTIFACTS_BUCKET }}/aws-nova-${{ github.sha }}.zip
 
       - name: Terraform apply — aws-nova agent
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
         working-directory: infra/agent-aws-nova
         run: |
           terraform init -backend-config=backend.hcl -input=false -no-color
@@ -185,7 +191,10 @@ jobs:
             -var="agent_lambda_s3_key=aws-nova-${{ github.sha }}.zip"
 
       # ── Phase 3: Azure/GPT ───────────────────────────────────────────────
+      # Skipped until the Azure deploy identity is configured (comes from
+      # applying infra/azure-bootstrap).
       - name: Azure login
+        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -193,6 +202,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Build and push azure-gpt
+        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
         run: |
           az acr login --name ${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}
           docker build -f agent/azure-gpt/Dockerfile \
@@ -200,6 +210,7 @@ jobs:
           docker push ${{ env.AZURE_GPT_REPO }}:${{ github.sha }}
 
       - name: Terraform apply — azure-gpt agent
+        if: ${{ secrets.AZURE_CLIENT_ID != '' }}
         working-directory: infra/agent-azure-gpt
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
