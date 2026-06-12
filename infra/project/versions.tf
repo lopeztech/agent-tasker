@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.7"
+  required_version = ">= 1.10" # variable validations rely on &&/|| short-circuit (TF 1.10+)
 
   required_providers {
     google = {
