@@ -95,6 +95,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node/pnpm are only needed to build the off-cloud agent Lambda/container
+      # bundles (AWS/Nova zip, Azure/GPT image). The GCP images build via Docker
+      # and don't need them. Gated so GCP-only deploys stay lean.
+      - uses: pnpm/action-setup@v4
+        if: env.HAS_AWS == 'true' || env.HAS_AZURE == 'true'
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_AWS == 'true' || env.HAS_AZURE == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
       - id: auth
         uses: google-github-actions/auth@v2
         with:
