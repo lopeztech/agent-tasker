@@ -8,6 +8,7 @@ import {
   type AgentEndpoint,
   type TaskTokenSigner,
 } from "./auction/http-runner.js";
+import { createMetadataIdTokenProvider, type IdTokenProvider } from "./auction/id-token.js";
 import { StubAuctionRunner } from "./auction/runner.js";
 import { FirestoreLedgerStore } from "./ledger/firestore-store.js";
 import { SecretManagerKeyProvider } from "./jwt/secret-manager-key-provider.js";
@@ -47,10 +48,23 @@ if (signingKeySecretName && gcpGeminiUrl && gcpOrchestratorUrl) {
     ...(awsNovaUrl ? [{ agentId: "aws-nova" as const, baseUrl: awsNovaUrl }] : []),
     ...(azureGptUrl ? [{ agentId: "azure-gpt" as const, baseUrl: azureGptUrl }] : []),
   ];
+  // GCP agent Cloud Run services are locked to coordinator-only `run.invoker`,
+  // so the coordinator must present a Google OIDC ID token (in
+  // `X-Serverless-Authorization`) on each call. The metadata-server provider
+  // only works on Cloud Run; `K_SERVICE` is set there but not in local dev,
+  // where agents are reached without GCP IAM in front of them.
+  let idTokenProvider: IdTokenProvider | undefined;
+  if (process.env["K_SERVICE"]) {
+    idTokenProvider = createMetadataIdTokenProvider();
+    console.log("metadata ID-token provider enabled for GCP agent invocation");
+  } else {
+    console.warn("K_SERVICE not set — skipping OIDC ID tokens (local/dev agent calls)");
+  }
   runner = new HttpAuctionRunner({
     store,
     agents,
     tokenSigner,
+    ...(idTokenProvider ? { idTokenProvider } : {}),
     pricingSnapshot: Object.values(FALLBACK_PRICING),
     // Vertex AI Flash responds in 2-5s; give the bid window room to collect
     // before the adaptive timeout closes. Phase 1 agents are on min-instances=0

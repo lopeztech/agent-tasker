@@ -4,7 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Greenfield. No code yet. This document is the design spec — a multi-cloud "agent market" where four LLM-backed agents receive a task description, each privately estimates the cost in normalized USD to complete it, submit sealed bids, and the lowest bidder wins and executes the work. Coordinator runs a Vickrey (second-price) auction; agent reputation will layer in once the ledger has ~100 settled tasks.
+**Phase 1 (GCP-only, 2-bidder auction) is built and deployed.** The coordinator,
+the GCP/Gemini direct agent, and the GCP/Orchestrator (GAEP) agent run on Cloud
+Run in project `agent-tasker-lcd` (us-central1), with the Firestore ledger, JWKS
+publishing, and the daily pricing-refresh Cloud Function live. CI builds the
+images and applies Terraform on every push to `main` via Workload Identity
+Federation. The GCP agents are locked to coordinator-only `roles/run.invoker`;
+the coordinator authenticates with a Google OIDC token in
+`X-Serverless-Authorization` (Cloud Run IAM) plus the per-task RS256 JWT in
+`Authorization` (verified by the agent). Phases 2 (AWS/Nova) and 3 (Azure/GPT)
+are implemented in-tree but undeployed — their CI deploy steps are gated on the
+`AWS_ROLE_ARN` / `AZURE_CLIENT_ID` secrets, which are unset. See the repo layout
+and build-order sections below for the per-component map; the design rationale
+throughout remains the reference for *why*.
+
+This system is a multi-cloud "agent market" where four LLM-backed agents receive a task description, each privately estimates the cost in normalized USD to complete it, submit sealed bids, and the lowest bidder wins and executes the work. Coordinator runs a Vickrey (second-price) auction; agent reputation will layer in once the ledger has ~100 settled tasks.
 
 The four agents are role-locked by design so the market spans both *runtime/capability profiles* and *cross-vendor model families*:
 
@@ -15,7 +29,7 @@ The four agents are role-locked by design so the market spans both *runtime/capa
 
 Two agents live in GCP (same Google model family under the hood, different runtimes, independent endpoints, independent bidders). AWS and Azure host one each. The system is GCP-centric by design — the coordinator lives on GCP, both same-cloud bidders are on Vertex AI/Gemini, and Gemini Enterprise Agent Platform powers the GCP/Orchestrator agent. The "two GCP bidders" thus contrast on **runtime/capability** (direct call vs orchestration); cross-vendor **family contrast** (Google vs Amazon vs OpenAI) sits across the cloud boundary in AWS/Nova and Azure/GPT.
 
-When code starts landing, update this file's commands/architecture sections to reflect what is actually built; keep the design rationale below as the reference for *why*.
+Keep the design rationale below as the reference for *why*; when behavior diverges from this spec, update the affected section rather than letting it drift.
 
 ## Goals & non-goals
 
@@ -215,6 +229,8 @@ Per-task tokens:
 - Signed per request — no token reuse across phases
 
 Each agent verifies tokens at the entrypoint (Cloud Run middleware / Lambda authorizer / Function middleware) by fetching JWKS once and caching for the rotation window. Key rotation: dual-publish in JWKS for the rotation window, switch active signing key, retire old after agents have refreshed.
+
+**Transport gate on GCP agents (in addition to the task JWT).** The GCP/Gemini and GCP/Orchestrator Cloud Run services grant `roles/run.invoker` only to the coordinator runtime service account — no `allUsers`. So before the task JWT is even seen, Cloud Run's IAM check must pass. The coordinator satisfies it by minting a Google-signed OIDC ID token from the metadata server (`aud` = the agent's Cloud Run service URL) and sending it in the **`X-Serverless-Authorization`** header. Cloud Run validates that header for the IAM check and forwards the `Authorization` header (the per-task RS256 JWT) to the container untouched, so the agent's JWT middleware is unchanged. This is a two-layer gate — Cloud Run invoker IAM, then app-level task-JWT verification — and the reason the agents can keep public ingress without being open to the world. AWS/Nova and Azure/GPT enforce auth via the task JWT at their own edge (Lambda authorizer / API Management); the `X-Serverless-Authorization` token is attached only for GCP-leg agents.
 
 ## Pricing data (scheduled refresh)
 

@@ -136,15 +136,18 @@ resource "google_cloud_run_v2_service" "agent" {
   ]
 }
 
-# Phase 1: public invoker so the coordinator can call the agent with its
-# custom JWT in the Authorization header without needing a GCP OIDC token.
-# Application-level JWT (RS256, coordinator-signed) is the auth boundary.
-# Future: switch to coordinator-SA-only invoker + X-Task-Token OIDC two-
-# token pattern once OIDC fetching is wired in HttpAuctionRunner.
-resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
+# `roles/run.invoker` is granted ONLY to the coordinator runtime SA, so no
+# other principal — including the sibling GCP/Gemini agent or any external
+# caller — can invoke this service. The coordinator presents a Google-signed
+# OIDC ID token in the `X-Serverless-Authorization` header (minted from the
+# metadata server, aud = this service URL); Cloud Run validates it for this IAM
+# check and forwards the `Authorization` header (the per-task RS256 JWT) to the
+# container unchanged. Two layers gate every call: Cloud Run invoker IAM (this
+# binding) and the agent's task-JWT verification.
+resource "google_cloud_run_v2_service_iam_member" "coordinator_invoker" {
   project  = google_cloud_run_v2_service.agent.project
   location = google_cloud_run_v2_service.agent.location
   name     = google_cloud_run_v2_service.agent.name
   role     = "roles/run.invoker"
-  member   = "allUsers"
+  member   = "serviceAccount:${var.coordinator_service_account_email}"
 }

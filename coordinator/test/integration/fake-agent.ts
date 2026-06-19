@@ -25,17 +25,26 @@ export interface FakeAgentOptions {
   onExecute?: (req: ExecuteRequest) => Result | Promise<Result>;
 }
 
+export interface CapturedRequest {
+  path: "/bid" | "/execute";
+  authorization: string | undefined;
+  serverlessAuthorization: string | undefined;
+}
+
 export interface FakeAgent {
   readonly agentId: AgentId;
   readonly url: string;
   bidCalls: number;
   executeCalls: number;
+  // Auth headers seen on each /bid and /execute request, in arrival order.
+  readonly requests: CapturedRequest[];
   stop(): Promise<void>;
 }
 
 export async function startFakeAgent(opts: FakeAgentOptions): Promise<FakeAgent> {
   const agentId = opts.agentId;
   const state = { bidCalls: 0, executeCalls: 0 };
+  const requests: CapturedRequest[] = [];
 
   const onBid =
     opts.onBid ??
@@ -60,6 +69,7 @@ export async function startFakeAgent(opts: FakeAgentOptions): Promise<FakeAgent>
 
   app.post("/bid", async (c) => {
     state.bidCalls += 1;
+    requests.push(captureRequest(c, "/bid"));
     const body = (await c.req.json()) as unknown;
     const parsed = AnnounceRequestSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid request" }, 400);
@@ -68,6 +78,7 @@ export async function startFakeAgent(opts: FakeAgentOptions): Promise<FakeAgent>
 
   app.post("/execute", async (c) => {
     state.executeCalls += 1;
+    requests.push(captureRequest(c, "/execute"));
     const body = (await c.req.json()) as unknown;
     const parsed = ExecuteRequestSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid request" }, 400);
@@ -87,6 +98,7 @@ export async function startFakeAgent(opts: FakeAgentOptions): Promise<FakeAgent>
   const agent: FakeAgent = {
     agentId,
     url,
+    requests,
     get bidCalls() {
       return state.bidCalls;
     },
@@ -101,4 +113,15 @@ export async function startFakeAgent(opts: FakeAgentOptions): Promise<FakeAgent>
   };
 
   return agent;
+}
+
+function captureRequest(
+  c: { req: { header(name: string): string | undefined } },
+  path: "/bid" | "/execute",
+): CapturedRequest {
+  return {
+    path,
+    authorization: c.req.header("authorization"),
+    serverlessAuthorization: c.req.header("x-serverless-authorization"),
+  };
 }
