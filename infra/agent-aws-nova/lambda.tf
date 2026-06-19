@@ -27,8 +27,8 @@ resource "aws_lambda_function" "agent" {
       AWS_NOVA_EXEC_MODEL_ID      = var.bedrock_execute_model_id
       JWKS_URL                    = var.jwks_url
       NODE_OPTIONS                = "--enable-source-maps"
-      OTEL_EXPORTER_OTLP_ENDPOINT = coalesce(var.otel_exporter_otlp_endpoint, "")
-      OTEL_EXPORTER_OTLP_HEADERS  = coalesce(var.otel_exporter_otlp_headers, "")
+      OTEL_EXPORTER_OTLP_ENDPOINT = var.otel_exporter_otlp_endpoint != null ? var.otel_exporter_otlp_endpoint : ""
+      OTEL_EXPORTER_OTLP_HEADERS  = var.otel_exporter_otlp_headers != null ? var.otel_exporter_otlp_headers : ""
       OTEL_SERVICE_NAME           = "agent-tasker-aws-nova"
       OTEL_TRACES_EXPORTER        = var.otel_exporter_otlp_endpoint == null ? "none" : "otlp"
       POWERTOOLS_SERVICE_NAME     = "agent-aws-nova"

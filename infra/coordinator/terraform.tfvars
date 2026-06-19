@@ -13,8 +13,8 @@ coordinator_min_instances = 1
 gcp_gemini_agent_url       = "https://agent-tasker-dev-gcp-gemini-n6ey4mj4ma-uc.a.run.app"
 gcp_orchestrator_agent_url = "https://agent-tasker-dev-gcp-orchestrator-n6ey4mj4ma-uc.a.run.app"
 
-# Set to the agent_api_endpoint output from infra/agent-aws-nova after Phase 2 bootstrap.
-aws_nova_agent_url = ""
+# agent_api_endpoint output from infra/agent-aws-nova (Phase 2 bootstrap, 2026-06-19).
+aws_nova_agent_url = "https://63iwfo9eek.execute-api.us-east-1.amazonaws.com"
 
 # Set to the agent_url output from infra/agent-azure-gpt after Phase 3 bootstrap.
 azure_gpt_agent_url = ""

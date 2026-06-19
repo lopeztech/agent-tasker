@@ -46,7 +46,7 @@ data "aws_iam_policy_document" "cicd_assume_role" {
 
 resource "aws_iam_role" "cicd" {
   name               = "${local.agent_name}-cicd"
-  description        = "CI/CD role for GitHub Actions — manages this module's Lambda, API Gateway, IAM, and S3 resources."
+  description        = "CI/CD role for GitHub Actions - manages this module's Lambda, API Gateway, IAM, and S3 resources."
   assume_role_policy = data.aws_iam_policy_document.cicd_assume_role.json
 }
 
