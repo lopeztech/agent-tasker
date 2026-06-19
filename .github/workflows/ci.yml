@@ -183,7 +183,11 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --filter '@agent-tasker/agent-aws-nova...' build
           pnpm --filter @agent-tasker/agent-aws-nova deploy --prod /tmp/aws-nova-deploy
-          cd /tmp/aws-nova-deploy && zip -r "$GITHUB_WORKSPACE/aws-nova.zip" .
+          # -y preserves pnpm's symlinked node_modules. Without it, zip
+          # dereferences every .pnpm symlink into a full copy, inflating the
+          # unzipped bundle ~9x (822MB) past Lambda's 250MB limit; with it the
+          # bundle stays ~59MB. Lambda resolves the relative symlinks fine.
+          cd /tmp/aws-nova-deploy && zip -r -y "$GITHUB_WORKSPACE/aws-nova.zip" .
 
       - name: Configure AWS credentials
         if: env.HAS_AWS == 'true'
