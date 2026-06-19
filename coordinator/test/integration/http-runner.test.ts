@@ -98,6 +98,7 @@ async function startAuction(opts: {
   callbackMaxAttempts?: number;
   callbackInitialBackoffMs?: number;
   callbackSleep?: (ms: number) => Promise<void>;
+  idTokenProvider?: (audience: string) => Promise<string | undefined>;
   onError?: (taskId: TaskId, err: unknown) => void;
 }): Promise<HttpAuctionRunner> {
   await store.createTask({
@@ -120,6 +121,7 @@ async function startAuction(opts: {
       ? { callbackInitialBackoffMs: opts.callbackInitialBackoffMs }
       : {}),
     ...(opts.callbackSleep !== undefined ? { callbackSleep: opts.callbackSleep } : {}),
+    ...(opts.idTokenProvider !== undefined ? { idTokenProvider: opts.idTokenProvider } : {}),
     ...(opts.onError !== undefined ? { onError: opts.onError } : {}),
     egressRecorder: opts.egressRecorder ?? (() => {}),
   });
@@ -659,6 +661,56 @@ describe("HttpAuctionRunner", () => {
       ]),
     );
     expect(egressEvents.every((event) => event.bytes_out > 0)).toBe(true);
+  });
+
+  it("sends OIDC X-Serverless-Authorization to GCP agents only, task JWT to all", async () => {
+    const taskId = "task-oidc-invoker";
+    const audiences: string[] = [];
+    const gemini = await startFakeAgent({
+      agentId: "gcp-gemini",
+      onBid: (req) => bidFor("gcp-gemini", 0.02, req.task_id),
+      onExecute: (req) => ({
+        task_id: req.task_id,
+        agent_id: "gcp-gemini",
+        output: "gemini did it",
+        actual_usage: { input_tokens: 4000, output_tokens: 1000 },
+      }),
+    });
+    const nova = await startFakeAgent({
+      agentId: "aws-nova",
+      onBid: (req) => bidFor("aws-nova", 0.04, req.task_id),
+    });
+    agents.push(gemini, nova);
+
+    await startAuction({
+      taskId,
+      endpoints: [
+        { agentId: "gcp-gemini", baseUrl: gemini.url },
+        { agentId: "aws-nova", baseUrl: nova.url },
+      ],
+      idTokenProvider: async (audience) => {
+        audiences.push(audience);
+        return `id-token-for.${audience}`;
+      },
+    });
+
+    // GCP agent: Cloud Run IAM token in X-Serverless-Authorization, task JWT in
+    // Authorization. Both bid and execute requests carry it.
+    expect(gemini.requests.length).toBeGreaterThanOrEqual(2);
+    for (const req of gemini.requests) {
+      expect(req.authorization).toBe(
+        `Bearer stub-token.gcp-gemini.${req.path === "/bid" ? "bid" : "execute"}`,
+      );
+      expect(req.serverlessAuthorization).toBe(`Bearer id-token-for.${gemini.url}`);
+    }
+    // The ID token audience is the agent's base URL (Cloud Run service URL).
+    expect(audiences).toContain(gemini.url);
+
+    // Non-GCP agent: task JWT only; no OIDC token requested for its audience.
+    const novaBid = nova.requests.find((r) => r.path === "/bid");
+    expect(novaBid?.authorization).toBe("Bearer stub-token.aws-nova.bid");
+    expect(novaBid?.serverlessAuthorization).toBeUndefined();
+    expect(audiences).not.toContain(nova.url);
   });
 
   it("estimates request bytes with UTF-8 body and header length", () => {

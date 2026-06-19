@@ -18,6 +18,7 @@ import type { LedgerStore } from "../ledger/store.js";
 import { recordAgentBidLatency, recordBidRoundLatency } from "../observability/market-metrics.js";
 import type { TaskRecord } from "../ledger/types.js";
 import type { AuctionRunner } from "./runner.js";
+import type { IdTokenProvider } from "./id-token.js";
 import { deliverCompletionWebhook, type WebhookSigner } from "./webhook-delivery.js";
 
 // Minimal real AuctionRunner that drives `bidding → awarded → executing →
@@ -68,6 +69,14 @@ export interface HttpAuctionRunnerOptions {
   callbackInitialBackoffMs?: number;
   callbackSleep?: (ms: number) => Promise<void>;
   webhookSigner?: WebhookSigner;
+  // Mints Google OIDC ID tokens (keyed by audience = agent base URL) so the
+  // coordinator can invoke GCP agents whose Cloud Run services are locked to
+  // coordinator-only `roles/run.invoker`. The token is sent in
+  // `X-Serverless-Authorization`; Cloud Run validates it there and leaves the
+  // task JWT in `Authorization` untouched for the agent. Only consulted for
+  // GCP-leg agents; AWS/Azure agents enforce auth via the task JWT alone.
+  // Omit (e.g. local dev / tests) to call agents without an ID token.
+  idTokenProvider?: IdTokenProvider;
   // Override for tests; defaults to the global `fetch` available in Node 22+.
   fetch?: typeof fetch;
   // Hook so callers can observe runs / surface errors. The runner itself
@@ -245,6 +254,7 @@ export class HttpAuctionRunner implements AuctionRunner {
             taskId,
             phase: "bid",
           });
+          const headers = await this.buildAgentRequestHeaders(agent, token);
           const response = await withSpan(
             "coordinator.agent.bid",
             { task_id: taskId, agent_id: agent.agentId, phase: "bid" },
@@ -255,14 +265,11 @@ export class HttpAuctionRunner implements AuctionRunner {
                 phase: "bid",
                 url: `${agent.baseUrl}/bid`,
                 body,
-                bearerToken: token,
+                headers,
               });
               const res = await fetchImpl(`${agent.baseUrl}/bid`, {
                 method: "POST",
-                headers: {
-                  "content-type": "application/json",
-                  authorization: `Bearer ${token}`,
-                },
+                headers,
                 body,
                 signal: controller.signal,
               });
@@ -335,6 +342,7 @@ export class HttpAuctionRunner implements AuctionRunner {
       throw new Error(`winner ${agentId} not in agent registry`);
     }
     const token = await this.opts.tokenSigner.sign({ agentId, taskId, phase: "execute" });
+    const headers = await this.buildAgentRequestHeaders(agent, token);
     const timeoutMs = this.opts.executeTimeoutMs ?? DEFAULT_EXECUTE_TIMEOUT_MS;
     const fetchImpl = this.opts.fetch ?? fetch;
     const controller = new AbortController();
@@ -358,14 +366,11 @@ export class HttpAuctionRunner implements AuctionRunner {
             phase: "execute",
             url: `${agent.baseUrl}/execute`,
             body: requestBody,
-            bearerToken: token,
+            headers,
           });
           const executeResponse = await fetchImpl(`${agent.baseUrl}/execute`, {
             method: "POST",
-            headers: {
-              "content-type": "application/json",
-              authorization: `Bearer ${token}`,
-            },
+            headers,
             body: requestBody,
             signal: controller.signal,
           });
@@ -406,20 +411,40 @@ export class HttpAuctionRunner implements AuctionRunner {
     return accuracyByAgent;
   }
 
+  // Builds the request headers for an agent call. Always carries the per-task
+  // RS256 JWT in `Authorization` (verified by the agent). For GCP-leg agents,
+  // additionally attaches a Google OIDC ID token in `X-Serverless-Authorization`
+  // so Cloud Run's coordinator-only invoker IAM check passes; Cloud Run consumes
+  // that header and forwards `Authorization` to the container unchanged.
+  private async buildAgentRequestHeaders(
+    agent: AgentEndpoint,
+    taskToken: string,
+  ): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      authorization: `Bearer ${taskToken}`,
+    };
+    if (cloudLegForAgent(agent.agentId) === "gcp" && this.opts.idTokenProvider) {
+      const idToken = await this.opts.idTokenProvider(agent.baseUrl);
+      if (idToken) headers["x-serverless-authorization"] = `Bearer ${idToken}`;
+    }
+    return headers;
+  }
+
   private recordAgentEgress({
     taskId,
     agentId,
     phase,
     url,
     body,
-    bearerToken,
+    headers,
   }: {
     taskId: TaskId;
     agentId: AgentId;
     phase: JwtPhase;
     url: string;
     body: string;
-    bearerToken: string;
+    headers: Record<string, string>;
   }): void {
     const target = new URL(url);
     const cloudLeg = cloudLegForAgent(agentId);
@@ -433,10 +458,7 @@ export class HttpAuctionRunner implements AuctionRunner {
       bytes_out: estimateHttpRequestBytes({
         method: "POST",
         path: target.pathname,
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${bearerToken}`,
-        },
+        headers,
         body,
       }),
     };
