@@ -9,8 +9,10 @@ resource "aws_lambda_function" "agent" {
 
   role = aws_iam_role.agent_runtime.arn
 
-  runtime     = "nodejs22.x"
-  handler     = "server.handler"
+  runtime = "nodejs22.x"
+  # tsc emits the entry at dist/server.js (ESM; package is "type":"module"),
+  # so the handler path is dist-prefixed — not bare "server.handler".
+  handler     = "dist/server.handler"
   memory_size = var.agent_memory_mb
   timeout     = var.agent_timeout_seconds
 
