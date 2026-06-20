@@ -1,11 +1,14 @@
 output "agent_url" {
   description = "Public HTTPS URL for the Azure/GPT Container App. Coordinator per-agent endpoint config points at this."
-  value       = "https://${azurerm_container_app.agent.latest_revision_fqdn}"
+  # Stable ingress FQDN (revision_mode = Single routes it to the latest
+  # revision). Not latest_revision_fqdn, which changes on every new revision and
+  # would break the coordinator's pinned endpoint on each deploy.
+  value = "https://${azurerm_container_app.agent.ingress[0].fqdn}"
 }
 
 output "agent_principal_id" {
-  description = "Managed identity principal ID for the Azure/GPT Container App."
-  value       = azurerm_container_app.agent.identity[0].principal_id
+  description = "User-assigned managed identity principal ID for the Azure/GPT Container App."
+  value       = azurerm_user_assigned_identity.agent.principal_id
 }
 
 output "key_vault_uri" {

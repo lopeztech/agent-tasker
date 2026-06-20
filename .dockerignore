@@ -1,0 +1,16 @@
+# Keep the Docker build context small. The agent Dockerfiles COPY source dirs
+# and run `pnpm install` + build inside the image, so none of these are needed
+# in the context — excluding them speeds local, CI, and `az acr build` uploads.
+**/node_modules
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+.git
+.github
+.pnpm-store
+**/.terraform
+**/terraform.tfstate*
+**/tfplan
+**/*.log
+operator-console
+docs
