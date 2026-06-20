@@ -12,7 +12,7 @@ resource "azurerm_key_vault" "agent" {
 resource "azurerm_key_vault_access_policy" "deployer" {
   key_vault_id = azurerm_key_vault.agent.id
   tenant_id    = var.tenant_id
-  object_id    = data.azurerm_client_config.current.object_id
+  object_id    = var.deployer_object_id != null ? var.deployer_object_id : data.azurerm_client_config.current.object_id
 
   secret_permissions = [
     "Delete",

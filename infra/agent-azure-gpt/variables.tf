@@ -108,6 +108,12 @@ variable "azure_openai_api_version" {
   default     = "2025-04-01-preview"
 }
 
+variable "deployer_object_id" {
+  description = "Object ID of the identity that runs `terraform apply` and therefore needs Key Vault secret access (get/list/set/delete). Set to the CI service principal (azure-bootstrap `ci_object_id`) so CI is the steady-state deployer; defaults to the current client when null (local operator apply)."
+  type        = string
+  default     = null
+}
+
 variable "azure_openai_api_key_secret_name" {
   description = "Key Vault secret name that stores the Azure OpenAI API key."
   type        = string
