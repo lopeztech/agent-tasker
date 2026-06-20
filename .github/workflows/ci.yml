@@ -18,7 +18,6 @@ env:
   AWS_REGION: us-east-1
   AWS_LAMBDA_ARTIFACTS_BUCKET: agent-tasker-dev-aws-nova-artifacts
   AZURE_GPT_ACR_LOGIN_SERVER: agentaskerdevazgptacr.azurecr.io
-  AZURE_GPT_ACR_NAME: agentaskerdevazgptacr
   AZURE_GPT_REPO: agentaskerdevazgptacr.azurecr.io/azure-gpt
 
 jobs:
@@ -224,14 +223,23 @@ jobs:
 
       - name: Build and push azure-gpt
         if: env.HAS_AZURE == 'true'
-        # Build remotely in ACR rather than docker build + az acr login on the
-        # runner: `az acr login --name <login-server>` does an ARM lookup that
-        # fails on the FQDN, and the remote build needs neither Docker nor a
-        # registry login (the OIDC session already holds AcrPush).
+        # Authenticate Docker to ACR via an AAD token exchange instead of
+        # `az acr login` / `az acr build`, both of which do an ARM registry
+        # lookup that the RG-scoped CI service principal cannot perform
+        # ("could not be found in subscription"). The token exchange is pure
+        # data plane and works with the AcrPush role the SP already holds.
         run: |
-          az acr build --registry ${{ env.AZURE_GPT_ACR_NAME }} \
-            --image azure-gpt:${{ github.sha }} \
-            -f agent/azure-gpt/Dockerfile .
+          ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
+          REFRESH_TOKEN=$(curl -s -X POST \
+            "https://${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}/oauth2/exchange" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=access_token&service=${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}&access_token=${ACCESS_TOKEN}" \
+            | jq -r .refresh_token)
+          echo "$REFRESH_TOKEN" | docker login "${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}" \
+            --username 00000000-0000-0000-0000-000000000000 --password-stdin
+          docker build -f agent/azure-gpt/Dockerfile \
+            -t ${{ env.AZURE_GPT_REPO }}:${{ github.sha }} .
+          docker push ${{ env.AZURE_GPT_REPO }}:${{ github.sha }}
 
       - name: Terraform apply — azure-gpt agent
         if: env.HAS_AZURE == 'true'
