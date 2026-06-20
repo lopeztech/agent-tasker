@@ -18,6 +18,7 @@ env:
   AWS_REGION: us-east-1
   AWS_LAMBDA_ARTIFACTS_BUCKET: agent-tasker-dev-aws-nova-artifacts
   AZURE_GPT_ACR_LOGIN_SERVER: agentaskerdevazgptacr.azurecr.io
+  AZURE_GPT_ACR_NAME: agentaskerdevazgptacr
   AZURE_GPT_REPO: agentaskerdevazgptacr.azurecr.io/azure-gpt
 
 jobs:
@@ -223,11 +224,14 @@ jobs:
 
       - name: Build and push azure-gpt
         if: env.HAS_AZURE == 'true'
+        # Build remotely in ACR rather than docker build + az acr login on the
+        # runner: `az acr login --name <login-server>` does an ARM lookup that
+        # fails on the FQDN, and the remote build needs neither Docker nor a
+        # registry login (the OIDC session already holds AcrPush).
         run: |
-          az acr login --name ${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}
-          docker build -f agent/azure-gpt/Dockerfile \
-            -t ${{ env.AZURE_GPT_REPO }}:${{ github.sha }} .
-          docker push ${{ env.AZURE_GPT_REPO }}:${{ github.sha }}
+          az acr build --registry ${{ env.AZURE_GPT_ACR_NAME }} \
+            --image azure-gpt:${{ github.sha }} \
+            -f agent/azure-gpt/Dockerfile .
 
       - name: Terraform apply — azure-gpt agent
         if: env.HAS_AZURE == 'true'
