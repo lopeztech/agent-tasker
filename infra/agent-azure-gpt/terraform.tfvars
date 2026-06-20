@@ -16,9 +16,12 @@ azure_openai_api_version    = "2025-04-01-preview"
 # from the AZURE_OPENAI_API_KEY secret) so it is never committed.
 
 # From infra/azure-bootstrap apply (2026-06-20) + the Azure OpenAI resource.
-subscription_id       = "8db4717d-3d07-4714-9e42-913d1723d6d0"
-tenant_id             = "86c1ecd5-782f-4afe-81f1-385bd7abc649"
-resource_group_name   = "agent-tasker-dev-azure"
+subscription_id     = "8db4717d-3d07-4714-9e42-913d1723d6d0"
+tenant_id           = "86c1ecd5-782f-4afe-81f1-385bd7abc649"
+resource_group_name = "agent-tasker-dev-azure"
+# CI service principal (azure-bootstrap ci_object_id) — the steady-state
+# deployer that needs Key Vault secret access on every CI apply.
+deployer_object_id    = "f1b06116-7707-42c5-9a14-4b0cfd1074eb"
 azure_openai_endpoint = "https://agent-tasker-dev-aoai.openai.azure.com/"
 acr_login_server      = "agenttaskerdevazgptacr.azurecr.io"
 acr_resource_id       = "/subscriptions/8db4717d-3d07-4714-9e42-913d1723d6d0/resourceGroups/agent-tasker-dev-azure/providers/Microsoft.ContainerRegistry/registries/agenttaskerdevazgptacr"
