@@ -17,8 +17,8 @@ env:
   GCP_ORCHESTRATOR_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-gcp-orchestrator/gcp-orchestrator
   AWS_REGION: us-east-1
   AWS_LAMBDA_ARTIFACTS_BUCKET: agent-tasker-dev-aws-nova-artifacts
-  AZURE_GPT_ACR_LOGIN_SERVER: agentaskerdevazgptacr.azurecr.io
-  AZURE_GPT_REPO: agentaskerdevazgptacr.azurecr.io/azure-gpt
+  AZURE_GPT_ACR_LOGIN_SERVER: agenttaskerdevazgptacr.azurecr.io
+  AZURE_GPT_REPO: agenttaskerdevazgptacr.azurecr.io/azure-gpt
 
 jobs:
   node:
@@ -233,7 +233,7 @@ jobs:
           REFRESH_TOKEN=$(curl -s -X POST \
             "https://${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}/oauth2/exchange" \
             -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "grant_type=access_token&service=${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}&access_token=${ACCESS_TOKEN}" \
+            -d "grant_type=access_token&service=${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}&tenant=${{ secrets.AZURE_TENANT_ID }}&access_token=${ACCESS_TOKEN}" \
             | jq -r .refresh_token)
           echo "$REFRESH_TOKEN" | docker login "${{ env.AZURE_GPT_ACR_LOGIN_SERVER }}" \
             --username 00000000-0000-0000-0000-000000000000 --password-stdin
