@@ -23,8 +23,13 @@ resource "azurerm_container_app" "agent" {
   tags                         = local.common_tags
 
   identity {
-    type = "SystemAssigned"
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.agent.id]
   }
+
+  # The image pull needs AcrPull on the user-assigned identity to be in place
+  # before the first revision provisions, or the pull 401s and the app fails.
+  depends_on = [azurerm_role_assignment.agent_acr_pull]
 
   secret {
     name  = var.azure_openai_api_key_secret_name
@@ -32,13 +37,16 @@ resource "azurerm_container_app" "agent" {
   }
 
   secret {
-    name  = "otel-exporter-otlp-headers"
-    value = coalesce(var.otel_exporter_otlp_headers, "")
+    name = "otel-exporter-otlp-headers"
+    # Azure Container Apps rejects empty-string secret values, so fall back to a
+    # non-empty sentinel when no OTLP headers are configured. Harmless because
+    # OTEL_TRACES_EXPORTER is "none" whenever the OTLP endpoint is unset.
+    value = var.otel_exporter_otlp_headers != null ? var.otel_exporter_otlp_headers : "none"
   }
 
   registry {
     server   = var.acr_login_server
-    identity = "System"
+    identity = azurerm_user_assigned_identity.agent.id
   }
 
   ingress {
@@ -119,7 +127,7 @@ resource "azurerm_container_app" "agent" {
 
       env {
         name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
-        value = coalesce(var.otel_exporter_otlp_endpoint, "")
+        value = var.otel_exporter_otlp_endpoint != null ? var.otel_exporter_otlp_endpoint : ""
       }
 
       env {

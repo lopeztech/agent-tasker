@@ -2,17 +2,23 @@ env = "dev"
 
 jwks_url = "https://storage.googleapis.com/agent-tasker-dev-jwks-agent-tasker-lcd/jwks.json"
 
-azure_openai_deployment     = "gpt-5"
-azure_openai_bid_deployment = "gpt-5-mini"
+# Interim: the GPT-5 family has 0 quota on this new subscription (needs an Azure
+# support request). gpt-4o has default Standard quota and deploys now, so both
+# bid and execute point at the single gpt-4o deployment. Swap to gpt-5 /
+# gpt-5-mini here once the GPT-5 quota increase is granted.
+azure_openai_deployment     = "gpt-4o"
+azure_openai_bid_deployment = "gpt-4o"
 azure_openai_api_version    = "2025-04-01-preview"
 
 # agent_image is intentionally absent — CI passes it as
 # -var="agent_image=ACR_LOGIN_SERVER/azure-gpt:SHA".
+# azure_openai_api_key is passed out-of-band (TF_VAR_azure_openai_api_key in CI
+# from the AZURE_OPENAI_API_KEY secret) so it is never committed.
 
-# These require infra/azure-bootstrap to be applied first:
-# subscription_id    = "..."   # az account show --query id -o tsv
-# tenant_id          = "..."   # az account show --query tenantId -o tsv
-# resource_group_name = "..."  # resource_group_name output from azure-bootstrap
-# azure_openai_endpoint = "..." # your Azure OpenAI endpoint
-# acr_login_server   = "..."   # acr_login_server output from azure-bootstrap
-# acr_resource_id    = "..."   # acr_resource_id output from azure-bootstrap
+# From infra/azure-bootstrap apply (2026-06-20) + the Azure OpenAI resource.
+subscription_id       = "8db4717d-3d07-4714-9e42-913d1723d6d0"
+tenant_id             = "86c1ecd5-782f-4afe-81f1-385bd7abc649"
+resource_group_name   = "agent-tasker-dev-azure"
+azure_openai_endpoint = "https://agent-tasker-dev-aoai.openai.azure.com/"
+acr_login_server      = "agenttaskerdevazgptacr.azurecr.io"
+acr_resource_id       = "/subscriptions/8db4717d-3d07-4714-9e42-913d1723d6d0/resourceGroups/agent-tasker-dev-azure/providers/Microsoft.ContainerRegistry/registries/agenttaskerdevazgptacr"
