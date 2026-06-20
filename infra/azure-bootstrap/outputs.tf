@@ -39,7 +39,7 @@ output "agent_service_principal_object_id" {
 }
 
 output "acr_login_server" {
-  description = "ACR login server hostname (e.g. agentaskerdevazgptacr.azurecr.io). Set as AZURE_GPT_ACR_LOGIN_SERVER in ci.yml and acr_login_server in infra/agent-azure-gpt/terraform.tfvars."
+  description = "ACR login server hostname (e.g. agenttaskerdevazgptacr.azurecr.io). Set as AZURE_GPT_ACR_LOGIN_SERVER in ci.yml and acr_login_server in infra/agent-azure-gpt/terraform.tfvars."
   value       = azurerm_container_registry.agent.login_server
 }
 
