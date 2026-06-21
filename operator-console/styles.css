@@ -1,23 +1,29 @@
+/*
+ * Agent Tasker — Market Terminal
+ * Design tokens, global resets, keyframes, and shared hover states.
+ * Per-component styling lives inline in the rendered markup (main.js) to
+ * stay 1:1 with the Claude Design handoff spec; this file holds only what
+ * has to be global.
+ */
 :root {
-  color-scheme: light;
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --ink: #1d252d;
-  --muted: #637083;
-  --line: #d9e0e7;
-  --accent: #0f766e;
-  --accent-dark: #115e59;
-  --danger: #b42318;
-  --warn: #9a6700;
-  --ok: #087443;
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  --bg: #0b0d15;
+  --bg2: #0f121d;
+  --panel: #141926;
+  --panel2: #1b2231;
+  --line: #28324c;
+  --lineSoft: #1f2740;
+  --ink: #eef1fa;
+  --inkDim: #aab6cd;
+  --inkFaint: #7b88a4;
+  --brand: #6e8bff;
+  --gcp: #4285f4;
+  --orch: #34a853;
+  --aws: #ff9900;
+  --azure: #2ec5ce;
+  --win: #36d399;
+  --warn: #f4b740;
+  --loss: #f06b6b;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
 }
 
 * {
@@ -28,304 +34,97 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0.1px;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-
-.shell {
-  width: min(1440px, calc(100vw - 32px));
-  margin: 0 auto;
-  padding: 24px 0 36px;
-}
-
-.topbar {
+#app {
   display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 18px;
-}
-
-.eyebrow {
-  margin: 0 0 4px;
-  color: var(--accent-dark);
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-h1,
-h2,
-h3,
-p {
-  margin: 0;
-}
-
-h1 {
-  font-size: 32px;
-  line-height: 1.1;
-}
-
-h2 {
-  font-size: 18px;
-}
-
-h3 {
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-
-.api-form,
-.lookup-form {
-  display: flex;
-  align-items: end;
-  gap: 8px;
-}
-
-.api-form label {
-  display: grid;
-  gap: 5px;
-  min-width: 280px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-input,
-select,
-textarea {
+  height: 100vh;
   width: 100%;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--ink);
-  padding: 10px 11px;
+  overflow: hidden;
 }
 
-textarea {
-  resize: vertical;
-  min-height: 220px;
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #28324c;
+  border-radius: 8px;
+  border: 2px solid #0b0d15;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-button {
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
+@keyframes at_ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes at_pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(54, 211, 153, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(54, 211, 153, 0);
+  }
+}
+@keyframes at_spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes at_blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+@keyframes at_toast {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[data-hov="card"] {
   cursor: pointer;
-  font-weight: 700;
-  min-height: 40px;
-  padding: 9px 13px;
 }
-
-button:hover {
-  background: var(--accent-dark);
+[data-hov="card"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
 }
-
-button.ghost {
-  background: #fff;
-  color: var(--accent-dark);
+[data-hov="row"]:hover {
+  background: var(--panel2);
 }
-
-button.ghost:hover {
-  background: #edf7f5;
+[data-hov="hero"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(110, 139, 255, 0.4);
 }
-
-.status-strip,
-.panel {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+[data-hov="hero"]:active {
+  transform: translateY(0);
 }
-
-.status-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  overflow: hidden;
-  margin-bottom: 16px;
+[data-hov="btn"]:hover {
+  box-shadow: 0 8px 22px rgba(110, 139, 255, 0.32);
 }
-
-.status-strip div,
-.state-grid div {
-  padding: 14px;
-}
-
-.status-strip span,
-.state-grid span {
-  display: block;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.status-strip strong,
-.state-grid strong {
-  display: block;
-  margin-top: 4px;
-  overflow-wrap: anywhere;
-}
-
-.layout {
-  display: grid;
-  grid-template-columns: minmax(320px, 0.92fr) minmax(420px, 1.45fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.panel {
-  padding: 16px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.task-form {
-  display: grid;
-  gap: 12px;
-}
-
-.task-form label {
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.grid-two {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.state-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-  margin-bottom: 16px;
-}
-
-.state-grid div + div {
-  border-left: 1px solid var(--line);
-}
-
-.output-block + .output-block {
-  margin-top: 16px;
-}
-
-pre,
-.step-trace {
-  min-height: 140px;
-  max-height: 360px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f9fbfc;
-  padding: 12px;
-  white-space: pre-wrap;
-}
-
-.step {
-  border-bottom: 1px solid var(--line);
-  padding: 10px 0;
-}
-
-.step:first-child {
-  padding-top: 0;
-}
-
-.step:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-
-.step-title {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-weight: 700;
-}
-
-.step-actions {
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.history-panel {
-  margin-top: 16px;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  border-top: 1px solid var(--line);
-  padding: 10px 8px;
-  text-align: left;
-  vertical-align: top;
-}
-
-th {
-  color: var(--muted);
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
-td button {
-  min-height: 0;
-  padding: 4px 8px;
-}
-
-.status-completed {
-  color: var(--ok);
-}
-
-.status-failed {
-  color: var(--danger);
-}
-
-.status-executing,
-.status-awarded,
-.status-bidding {
-  color: var(--warn);
-}
-
-@media (max-width: 900px) {
-  .topbar,
-  .layout,
-  .status-strip,
-  .state-grid,
-  .grid-two {
-    grid-template-columns: 1fr;
-  }
-
-  .topbar {
-    display: grid;
-    align-items: start;
-  }
-
-  .api-form,
-  .lookup-form {
-    align-items: stretch;
-  }
-
-  .state-grid div + div {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
+[data-hov="btn"]:active {
+  transform: translateY(1px);
 }
