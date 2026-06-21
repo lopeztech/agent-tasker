@@ -1,0 +1,9 @@
+# Copy to backend.hcl per environment and pass to:
+#   terraform init -backend-config=backend.hcl
+#
+# Reuses the GCS state bucket created during infra/project bootstrap.
+# Separate prefix from the other modules so this module's state doesn't
+# collide.
+
+bucket = "agent-tasker-tfstate-CHANGEME"
+prefix = "operator-console/dev"

@@ -15,6 +15,7 @@ env:
   COORDINATOR_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-coordinator/coordinator
   GCP_GEMINI_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-gcp-gemini/gcp-gemini
   GCP_ORCHESTRATOR_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-gcp-orchestrator/gcp-orchestrator
+  OPERATOR_CONSOLE_REPO: us-central1-docker.pkg.dev/agent-tasker-lcd/agent-tasker-dev-operator-console/operator-console
   AWS_REGION: us-east-1
   AWS_LAMBDA_ARTIFACTS_BUCKET: agent-tasker-dev-aws-nova-artifacts
   AZURE_GPT_ACR_LOGIN_SERVER: agenttaskerdevazgptacr.azurecr.io
@@ -91,6 +92,9 @@ jobs:
       # checks for the Phase 2/3 deploy identities go through env instead.
       HAS_AWS: ${{ secrets.AWS_ROLE_ARN != '' }}
       HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' }}
+      # The operator console's hosting + DNS are managed together; gate both on
+      # the Cloudflare token so the pipeline stays green until DNS is wired.
+      HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -143,6 +147,17 @@ jobs:
             -t ${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }} .
           docker push ${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }}
 
+      # The console is a static SPA — its image is built from the
+      # operator-console/ dir as the context (the repo-root .dockerignore
+      # excludes that dir from the agents' contexts). Gated on the Cloudflare
+      # token so it's skipped until DNS is wired.
+      - name: Build and push operator-console
+        if: env.HAS_CLOUDFLARE == 'true'
+        run: |
+          docker build -f operator-console/Dockerfile \
+            -t ${{ env.OPERATOR_CONSOLE_REPO }}:${{ github.sha }} operator-console
+          docker push ${{ env.OPERATOR_CONSOLE_REPO }}:${{ github.sha }}
+
       # Apply modules in dependency order. The project module is applied
       # first so any API or IAM changes it manages are live before the
       # downstream modules run. Image tags are passed as -var overrides so
@@ -173,6 +188,21 @@ jobs:
           terraform init -backend-config=backend.hcl -input=false -no-color
           terraform apply -auto-approve -input=false -no-color \
             -var="agent_image=${{ env.GCP_ORCHESTRATOR_REPO }}:${{ github.sha }}"
+
+      # Operator console: Cloud Run service + Cloud Run domain mapping + the
+      # Cloudflare DNS record. Gated on CLOUDFLARE_API_TOKEN (passed as
+      # TF_VAR_cloudflare_api_token). The Artifact Registry repo and domain
+      # mapping are created on the first (bootstrap) apply — see
+      # infra/operator-console/README.md.
+      - name: Terraform apply — operator-console
+        if: env.HAS_CLOUDFLARE == 'true'
+        working-directory: infra/operator-console
+        env:
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          terraform init -backend-config=backend.hcl -input=false -no-color
+          terraform apply -auto-approve -input=false -no-color \
+            -var="console_image=${{ env.OPERATOR_CONSOLE_REPO }}:${{ github.sha }}"
 
       # ── Phase 2: AWS/Nova ────────────────────────────────────────────────
       # Skipped until AWS_ROLE_ARN is configured (the AWS stack and its CI
